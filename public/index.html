@@ -208,7 +208,8 @@
 <div id="help" style="display:none">
   <b>Left-drag</b> select · <b>Right-click</b> move / attack · <b>Wheel</b> zoom · <b>WASD</b> pan<br>
   <b>B</b> opens the build menu (troops + structures). Click your HQ for defense upgrades.<br>
-  Capture ⛏ nodes for bonus income (destroy their guard first). Destroy enemy HQs to win.
+  Capture ⛏ nodes for income. Conquer tan <b>NEUTRAL BASES</b>: destroy their defence, then hold troops nearby.<br>
+  Destroy enemy HQs to eliminate players.
 </div>
 
 <div id="selinfo" style="display:none"></div>
@@ -906,7 +907,9 @@ function drawMinimap() {
       const px = W / 2 + (e.x - cx) * sc, py = H / 2 + (e.y - cz) * sc;
       if (px < 0 || px > W || py < 0 || py > H) continue;
       const mine = e.team === myTeam;
-      mc.fillStyle = e.kind === "guard" ? "#aeb4ba" : e.kind === "base" ? (mine ? "#8fb0ff" : "#ff9a9a") : (mine ? "#4c8dff" : "#ef4444");
+      mc.fillStyle = e.kind === "guard" ? "#aeb4ba"
+        : e.kind === "base" ? (e.team === NEUTRAL_TEAM ? "#d8b08c" : mine ? "#8fb0ff" : "#ff9a9a")
+        : (mine ? "#4c8dff" : "#ef4444");
       const s = (e.kind === "unit" || e.type === "wall") ? 2 : 5;
       mc.fillRect(px - s / 2, py - s / 2, s, s);
     }
@@ -1221,7 +1224,8 @@ function makeLabelSprite(text, color) {
   return spr;
 }
 
-function buildBaseModel(team, lvl) {
+const NEUTRAL_TEAM = " neutral";
+function buildBaseModel(team, lvl, guarded) {
   const g = new THREE.Group();
   const body = 0x6b6f73, accent = 0x4a4d50;        // industrial grey complex
   const dims = [[6, 7, 6, 0, 0], [4, 5, 4, 5.5, 2], [4, 4.5, 4, -5, -2.5], [3.5, 9, 3.5, 3, -5]];
@@ -1233,10 +1237,16 @@ function buildBaseModel(team, lvl) {
   // flag pole
   const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 6, 6), mat(0xcfd8e3));
   pole.position.set(3, 12, -5); g.add(pole);
+  const isNeutral = team === NEUTRAL_TEAM;
+  const flagCol = isNeutral ? 0x9aa0a6 : teamAccent(team);
   const flag = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.4, 0.1),
-    new THREE.MeshStandardMaterial({ color: teamAccent(team), emissive: teamAccent(team), emissiveIntensity: 0.35 }));
+    new THREE.MeshStandardMaterial({ color: flagCol, emissive: flagCol, emissiveIntensity: 0.35 }));
   flag.position.set(4.2, 14, -5); g.add(flag);
-  const label = makeLabelSprite(team + (lvl ? " · L" + lvl : ""), team === myTeam ? "#66e06a" : "#f0695f");
+  const text = isNeutral
+    ? (guarded ? "NEUTRAL BASE · DEFENDED" : "NEUTRAL BASE · CONQUER!")
+    : team + (lvl ? " · L" + lvl : "");
+  const col = isNeutral ? (guarded ? "#d8c8a0" : "#ffe38f") : (team === myTeam ? "#66e06a" : "#f0695f");
+  const label = makeLabelSprite(text, col);
   label.position.set(0, 18, 0); g.add(label);
   return g;
 }
@@ -1372,14 +1382,15 @@ function syncEntities() {
   for (const e of latest.entities) {
     seen.add(e.id);
     let o = entityObjs.get(e.id);
-    if (o && (e.kind === "base" || e.kind === "building") && o.lvl !== e.lvl) {   // upgraded → rebuild
+    if (o && (e.kind === "base" || e.kind === "building") &&
+        (o.lvl !== e.lvl || o.team !== e.team || (e.kind === "base" && o.guardedB !== e.guarded))) {   // changed → rebuild
       scene.remove(o.group); scene.remove(o.pick);
       pickList = pickList.filter(pp => pp.userData.id !== e.id);
       entityObjs.delete(e.id); o = null;
     }
     if (!o) {
       let group;
-      if (e.kind === "base") group = buildBaseModel(e.team, e.lvl);
+      if (e.kind === "base") group = buildBaseModel(e.team, e.lvl, e.guarded);
       else if (e.kind === "building") group = e.type === "turret" ? buildTurretModel(e.team) : buildStructureModel(e.type);
       else if (e.kind === "guard") group = buildGuardModel();
       else group = buildUnitModel(e.type, e.team);
@@ -1388,7 +1399,7 @@ function syncEntities() {
       const pick = makePick(e.id); scene.add(pick); pickList.push(pick);
       const hp = makeHpBar(); group.add(hp.grp);
       o = { group, pick, hpFg: hp.fg, hpGrp: hp.grp, kind: e.kind, team: e.team, type: e.type,
-            lvl: e.lvl, hbY: e.kind === "unit" ? 5 : (e.type === "wall" ? 7 : 12) };
+            lvl: e.lvl, guardedB: e.guarded, hbY: e.kind === "unit" ? 5 : (e.type === "wall" ? 7 : 12) };
       hp.grp.position.y = o.hbY;
       entityObjs.set(e.id, o);
     }
