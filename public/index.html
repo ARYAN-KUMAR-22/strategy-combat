@@ -314,6 +314,8 @@ const canvas = document.getElementById("scene");
 let renderer, scene, camera, ground, raycaster, ndc, clouds, sun, terrain, waterTex;
 let camTarget, camZoom = 1, resetCameraOnStart = false, viewFrame = 0;
 let minimapCtx = null;
+let bulletLines, bulletPos;
+const MAXB = 600;                                 // max tracers drawn per frame
 let terrainKey = null;                            // "WxH" of the terrain currently built
 const TERRAIN_MARGIN = 3000;                      // how far mountains extend past the arena (world units)
 
@@ -364,6 +366,32 @@ function initThree() {
     camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
   });
   minimapCtx = document.getElementById("minimap").getContext("2d");
+
+  // reusable line buffer for weapon tracers (updated every frame)
+  bulletPos = new Float32Array(MAXB * 6);
+  const bg = new THREE.BufferGeometry();
+  bg.setAttribute("position", new THREE.BufferAttribute(bulletPos, 3));
+  bg.setDrawRange(0, 0);
+  bulletLines = new THREE.LineSegments(bg, new THREE.LineBasicMaterial({ color: 0xffe066 }));
+  bulletLines.frustumCulled = false;
+  scene.add(bulletLines);
+}
+
+// Draw a tracer for every bullet the server reports near us.
+function updateBullets() {
+  if (!bulletLines) return;
+  let n = 0;
+  if (latest && latest.bullets) {
+    for (const b of latest.bullets) {
+      if (n >= MAXB) break;
+      const i = n * 6;
+      bulletPos[i]     = b.x * S;  bulletPos[i + 1] = heightAt(b.x, b.y) + 4;  bulletPos[i + 2] = b.y * S;
+      bulletPos[i + 3] = b.tx * S; bulletPos[i + 4] = heightAt(b.tx, b.ty) + 4; bulletPos[i + 5] = b.ty * S;
+      n++;
+    }
+  }
+  bulletLines.geometry.setDrawRange(0, n * 2);
+  bulletLines.geometry.attributes.position.needsUpdate = true;
 }
 
 // Local radar: plots what we know (nearby entities) relative to the camera centre.
@@ -381,6 +409,12 @@ function drawMinimap() {
       mc.fillStyle = e.kind === "base" ? (mine ? "#8fb0ff" : "#ff9a9a") : (mine ? "#4c8dff" : "#ef4444");
       const s = e.kind === "unit" ? 2 : 5;
       mc.fillRect(px - s / 2, py - s / 2, s, s);
+    }
+    mc.fillStyle = "#ffe066";                        // active fire flashes
+    for (const b of latest.bullets || []) {
+      const px = W / 2 + (b.x - cx) * sc, py = H / 2 + (b.y - cz) * sc;
+      if (px < 0 || px > W || py < 0 || py > H) continue;
+      mc.fillRect(px, py, 1.5, 1.5);
     }
     mc.strokeStyle = "rgba(255,255,255,0.85)"; mc.lineWidth = 1;
     mc.beginPath(); mc.moveTo(W / 2 - 5, H / 2); mc.lineTo(W / 2 + 5, H / 2);
@@ -653,12 +687,15 @@ function syncEntities() {
       entityObjs.set(e.id, o);
     }
     const flying = e.kind === "unit" && UNIT_TYPES[e.type] && UNIT_TYPES[e.type].flying;
-    const tx = e.x * S, tz = e.y * S, ty = heightAt(e.x, e.y) + (flying ? 9 : 0);
-    // smooth toward target position
+    const tx = e.x * S, tz = e.y * S;
+    // smooth toward target position (x/z), y follows the terrain directly
     o.group.position.x += (tx - o.group.position.x) * 0.35;
     o.group.position.z += (tz - o.group.position.z) * 0.35;
-    o.group.position.y += (ty - o.group.position.y) * 0.2;
-    o.pick.position.set(o.group.position.x, ty + 3, o.group.position.z);
+    const moving = e.kind === "unit" && Math.hypot(tx - o.group.position.x, tz - o.group.position.z) > 0.4;
+    const bob = moving ? Math.abs(Math.sin(performance.now() * 0.012 + (e.id % 10))) * 0.5 : 0;
+    const baseY = heightAt(e.x, e.y) + (flying ? 9 : 0);
+    o.group.position.y = baseY + bob;
+    o.pick.position.set(o.group.position.x, baseY + 3, o.group.position.z);
 
     // face movement direction (units only)
     if (e.kind === "unit") {
@@ -820,6 +857,7 @@ function loop() {
       for (const c of clouds.children) { c.position.x += 0.03; if (c.position.x > WX() + 20) c.position.x = -20; }
     }
     if (waterTex) { waterTex.offset.x += 0.0009; waterTex.offset.y += 0.0006; }   // ripple
+    updateBullets();
     // tell the server where we're looking (interest management)
     if (socket && myTeam && (++viewFrame % 20 === 0)) socket.emit("view", { x: camTarget.x / S, y: camTarget.z / S });
     renderer.render(scene, camera);
