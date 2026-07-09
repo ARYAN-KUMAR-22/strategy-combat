@@ -17,34 +17,83 @@ const http = require("http");
 const { Server } = require("socket.io");
 const path = require("path");
 const fs = require("fs");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
 
 const app = express();
+app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
-// ---- Leaderboard (simple persistent win counts by player name) --------------
-// Note: on hosts with an ephemeral filesystem (e.g. Render free tier) this file
-// resets on each redeploy. A real database is the Stage-4 upgrade.
-const LB_FILE = path.join(__dirname, "leaderboard.json");
-let leaderboard = {};                       // { name: { wins, losses } }
-try { leaderboard = JSON.parse(fs.readFileSync(LB_FILE, "utf8")); } catch { leaderboard = {}; }
+const JWT_SECRET = process.env.JWT_SECRET || "dev-insecure-secret-change-in-production";
+if (JWT_SECRET.startsWith("dev-")) console.warn("[warn] Using an insecure default JWT_SECRET. Set JWT_SECRET in production.");
+const MAX_PLAYERS = parseInt(process.env.MAX_PLAYERS || "300", 10);
 
-function saveLeaderboard() {
-  try { fs.writeFileSync(LB_FILE, JSON.stringify(leaderboard)); } catch (e) { /* ignore */ }
+// ---- User store (accounts + win/loss), persisted to a JSON file -------------
+// Reads/writes are infrequent (register, login, match end) so a file is fine for
+// a few-hundred-player prototype. Swap for Postgres for real scale / persistence
+// on ephemeral hosts (see DEPLOY.md).
+const USERS_FILE = path.join(__dirname, "users.json");
+let users = {};                              // { username: { hash, wins, losses, created } }
+try { users = JSON.parse(fs.readFileSync(USERS_FILE, "utf8")); } catch { users = {}; }
+
+let saveQueued = false;
+function saveUsers() {                        // debounced atomic write (temp + rename)
+  if (saveQueued) return;
+  saveQueued = true;
+  setTimeout(() => {
+    saveQueued = false;
+    try {
+      const tmp = USERS_FILE + ".tmp";
+      fs.writeFileSync(tmp, JSON.stringify(users));
+      fs.renameSync(tmp, USERS_FILE);
+    } catch (e) { console.error("saveUsers failed:", e.message); }
+  }, 200);
 }
-function recordResult(name, didWin) {
-  if (!name) return;
-  const e = leaderboard[name] || (leaderboard[name] = { wins: 0, losses: 0 });
-  if (didWin) e.wins++; else e.losses++;
-  saveLeaderboard();
+function recordResult(username, didWin) {
+  const u = users[username];
+  if (!u) return;
+  if (didWin) u.wins++; else u.losses++;
+  saveUsers();
 }
 
-// Top players as JSON, for the client's start screen.
+const online = new Map();                     // username -> live connection count
+function onlineAdd(u) { online.set(u, (online.get(u) || 0) + 1); }
+function onlineRemove(u) { const c = (online.get(u) || 0) - 1; if (c <= 0) online.delete(u); else online.set(u, c); }
+
+function validName(n) { return typeof n === "string" && /^[A-Za-z0-9_]{3,16}$/.test(n); }
+
+// ---- Auth routes ------------------------------------------------------------
+app.post("/api/register", async (req, res) => {
+  const { username, password } = req.body || {};
+  if (!validName(username)) return res.status(400).json({ error: "Username must be 3–16 letters/numbers/underscore." });
+  if (typeof password !== "string" || password.length < 4) return res.status(400).json({ error: "Password must be at least 4 characters." });
+  if (users[username]) return res.status(409).json({ error: "That username is already taken." });
+  const hash = await bcrypt.hash(password, 10);
+  users[username] = { hash, wins: 0, losses: 0, created: Date.now() };
+  saveUsers();
+  const token = jwt.sign({ username }, JWT_SECRET, { expiresIn: "7d" });
+  res.json({ token, username });
+});
+
+app.post("/api/login", async (req, res) => {
+  const { username, password } = req.body || {};
+  const u = users[username];
+  if (!u || !(await bcrypt.compare(String(password || ""), u.hash)))
+    return res.status(401).json({ error: "Wrong username or password." });
+  const token = jwt.sign({ username }, JWT_SECRET, { expiresIn: "7d" });
+  res.json({ token, username });
+});
+
+// Public stats for the lobby screen.
 app.get("/leaderboard", (_req, res) => {
-  const top = Object.entries(leaderboard)
-    .map(([name, s]) => ({ name, wins: s.wins, losses: s.losses }))
+  const top = Object.entries(users)
+    .map(([name, s]) => ({ name, wins: s.wins || 0, losses: s.losses || 0 }))
     .sort((a, b) => b.wins - a.wins || a.losses - b.losses)
     .slice(0, 10);
   res.json(top);
+});
+app.get("/status", (_req, res) => {
+  res.json({ online: online.size, capacity: MAX_PLAYERS, matches: matches.size, players: Object.keys(users).length });
 });
 
 const server = http.createServer(app);
@@ -312,13 +361,30 @@ function snapshot(match, team) {
 }
 
 // ---- Socket wiring ----------------------------------------------------------
-io.on("connection", (socket) => {
-  console.log("connected:", socket.id);
+// Every socket must present a valid JWT (from register/login) before connecting.
+io.use((socket, next) => {
+  try {
+    const token = socket.handshake.auth && socket.handshake.auth.token;
+    const payload = jwt.verify(token, JWT_SECRET);
+    if (!payload || !users[payload.username]) return next(new Error("auth"));
+    socket.data.username = payload.username;
+    next();
+  } catch { next(new Error("auth")); }
+});
 
-  socket.on("findMatch", (opts) => {
+io.on("connection", (socket) => {
+  // capacity guard — protects the server at the target player ceiling
+  if (online.size >= MAX_PLAYERS && !online.has(socket.data.username)) {
+    socket.emit("serverFull", { capacity: MAX_PLAYERS });
+    return socket.disconnect(true);
+  }
+  onlineAdd(socket.data.username);
+  io.emit("online", online.size);
+  console.log(`connected: ${socket.data.username} (${online.size} online, ${matches.size} matches)`);
+
+  socket.on("findMatch", () => {
     if (socket.data.matchId) return;
-    const raw = (opts && typeof opts.name === "string") ? opts.name : "";
-    socket.data.name = raw.trim().slice(0, 16) || ("Player-" + socket.id.slice(0, 4));
+    socket.data.name = socket.data.username;
     if (waiting && waiting.id !== socket.id && waiting.connected) {
       const opp = waiting; waiting = null;
       createMatch(opp, socket);
@@ -345,7 +411,9 @@ io.on("connection", (socket) => {
   });
 
   socket.on("disconnect", () => {
-    console.log("disconnected:", socket.id);
+    onlineRemove(socket.data.username);
+    io.emit("online", online.size);
+    console.log(`disconnected: ${socket.data.username} (${online.size} online)`);
     if (waiting && waiting.id === socket.id) waiting = null;
     const m = matches.get(socket.data.matchId);
     if (m && !m.over) endMatch(m, socket.data.team === "A" ? "B" : "A", "opponent left");

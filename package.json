@@ -1,7 +1,7 @@
 {
   "name": "strategy-combat-multiplayer",
-  "version": "1.0.0",
-  "description": "Real-time multiplayer prototype for Strategy Combat — server-authoritative 1v1.",
+  "version": "1.1.0",
+  "description": "Real-time multiplayer Strategy Combat — accounts, 3D battlefield, server-authoritative matches.",
   "type": "commonjs",
   "main": "server.js",
   "engines": {
@@ -12,7 +12,12 @@
     "dev": "node server.js"
   },
   "dependencies": {
+    "bcryptjs": "^2.4.3",
     "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
     "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.3"
   }
 }

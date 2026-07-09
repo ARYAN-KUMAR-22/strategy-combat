@@ -3,3 +3,5 @@ npm-debug.log*
 .env
 .DS_Store
 leaderboard.json
+users.json
+users.json.tmp
