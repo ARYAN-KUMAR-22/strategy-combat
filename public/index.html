@@ -27,6 +27,19 @@
     border-radius: 7px; font-size: 15px; font-weight: 600; cursor: pointer; }
   #overlay button:hover { background: #388bfd; }
   #overlay.hidden { display: none; }
+  #ov-name { background: #0d1117; border: 1px solid #30363d; color: #e6edf3;
+    padding: 11px 14px; border-radius: 7px; font-size: 15px; width: 220px; text-align: center; }
+  #ov-name:focus { outline: none; border-color: #58a6ff; }
+  #leaderboard { margin-top: 10px; min-width: 300px; background: rgba(20,26,34,.6);
+    border: 1px solid #2b3846; border-radius: 8px; padding: 12px 18px; }
+  #leaderboard h3 { margin: 0 0 8px; font-size: 14px; color: #cdd6e0; }
+  #lb-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  #lb-table td { padding: 3px 6px; color: #adbac7; }
+  #lb-table td:first-child { text-align: left; }
+  #lb-table td:last-child { text-align: right; color: #3fb950; font-variant-numeric: tabular-nums; }
+  #lb-table td.lb-empty { text-align: center; color: #6b7684; }
+  #hud #vs { color: #8b99a6; }
+  #hud #opp-name { color: #ff7b72; }
   #help { position: fixed; bottom: 10px; left: 10px; font-size: 12px; color: #8b99a6;
     background: rgba(20,26,34,.72); padding: 8px 12px; border-radius: 6px; line-height: 1.7; z-index: 3; }
   #help b { color: #cdd6e0; }
@@ -37,14 +50,19 @@
 
 <div id="overlay">
   <h1>⚔️ Strategy Combat — Online 1v1</h1>
-  <p id="ov-text">Click below to find an opponent. Open this page in a second tab
-     (or send it to a friend on the same network) and click Find Match there too —
+  <p id="ov-text">Enter a name, then find an opponent. Open this page in a second tab
+     (or send it to a friend) and click Find Match there too —
      you'll be matched together and fight in real time.</p>
+  <input id="ov-name" maxlength="16" placeholder="Your name" autocomplete="off">
   <button id="ov-btn">🔍 Find Match</button>
+  <div id="leaderboard">
+    <h3>🏆 Top Players</h3>
+    <table id="lb-table"><tbody><tr><td class="lb-empty">No games played yet</td></tr></tbody></table>
+  </div>
 </div>
 
 <div id="hud" style="display:none">
-  <div class="res"><span id="team-dot" class="dot"></span><b id="team-name">—</b></div>
+  <div class="res"><span id="team-dot" class="dot"></span><b id="team-name">—</b><span id="vs"> vs </span><b id="opp-name">—</b></div>
   <div class="res">⚙️ <b id="r-steel">0</b><span>Steel</span></div>
   <div class="res">🛢️ <b id="r-fuel">0</b><span>Fuel</span></div>
   <div class="res">💰 <b id="r-gold">0</b><span>Gold</span></div>
@@ -85,12 +103,29 @@ function s2w(sx, sy) { return { x: sx + camera.x, y: sy + camera.y }; }
 function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
 
 // ---- Networking events ------------------------------------------------------
+// restore last-used name
+document.getElementById("ov-name").value = localStorage.getItem("sc-name") || "";
+
 document.getElementById("ov-btn").addEventListener("click", () => {
-  socket.emit("findMatch");
+  const name = document.getElementById("ov-name").value.trim();
+  localStorage.setItem("sc-name", name);
+  socket.emit("findMatch", { name });
   document.getElementById("ov-text").textContent = "Searching for an opponent…";
   document.getElementById("ov-btn").disabled = true;
   document.getElementById("ov-btn").textContent = "Waiting…";
 });
+
+// load the leaderboard onto the start screen
+function loadLeaderboard() {
+  fetch("/leaderboard").then(r => r.json()).then(rows => {
+    const body = document.querySelector("#lb-table tbody");
+    if (!rows.length) { body.innerHTML = '<tr><td class="lb-empty">No games played yet</td></tr>'; return; }
+    body.innerHTML = rows.map((r, i) =>
+      `<tr><td>${i + 1}. ${escapeHtml(r.name)}</td><td>${r.wins}W / ${r.losses}L</td></tr>`).join("");
+  }).catch(() => {});
+}
+function escapeHtml(s) { return s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+loadLeaderboard();
 
 socket.on("waiting", () => {
   document.getElementById("ov-text").textContent =
@@ -104,7 +139,8 @@ socket.on("matchStart", (info) => {
   document.getElementById("hud").style.display = "flex";
   document.getElementById("help").style.display = "block";
   const dot = document.getElementById("team-dot");
-  document.getElementById("team-name").textContent = myTeam === "A" ? "You (Blue)" : "You (Blue)";
+  document.getElementById("team-name").textContent = info.yourName || "You";
+  document.getElementById("opp-name").textContent = info.opponentName || "Enemy";
   dot.style.background = "#388bfd";
   // center camera on my base once the first snapshot arrives (handled in render)
   camera.centered = false;
@@ -112,18 +148,20 @@ socket.on("matchStart", (info) => {
 
 socket.on("state", (snap) => { latest = snap; });
 
-socket.on("gameOver", ({ winner, reason }) => {
+socket.on("gameOver", ({ winner, reason, winnerName }) => {
   const won = winner === myTeam;
   const ov = document.getElementById("overlay");
   ov.classList.remove("hidden");
   ov.querySelector("h1").textContent = won ? "🏆 VICTORY" : "💀 DEFEAT";
   document.getElementById("ov-text").textContent =
+    (winnerName ? winnerName + " wins. " : "") +
     (won ? "You destroyed the enemy HQ. " : "Your HQ was destroyed. ") + "(" + reason + ")";
   const btn = document.getElementById("ov-btn");
   btn.disabled = false; btn.textContent = "🔍 Find New Match";
   document.getElementById("hud").style.display = "none";
   document.getElementById("help").style.display = "none";
   myTeam = null; latest = null; selected.clear();
+  loadLeaderboard();
 });
 
 // ---- Build / place buttons --------------------------------------------------

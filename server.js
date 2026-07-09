@@ -16,9 +16,36 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const path = require("path");
+const fs = require("fs");
 
 const app = express();
 app.use(express.static(path.join(__dirname, "public")));
+
+// ---- Leaderboard (simple persistent win counts by player name) --------------
+// Note: on hosts with an ephemeral filesystem (e.g. Render free tier) this file
+// resets on each redeploy. A real database is the Stage-4 upgrade.
+const LB_FILE = path.join(__dirname, "leaderboard.json");
+let leaderboard = {};                       // { name: { wins, losses } }
+try { leaderboard = JSON.parse(fs.readFileSync(LB_FILE, "utf8")); } catch { leaderboard = {}; }
+
+function saveLeaderboard() {
+  try { fs.writeFileSync(LB_FILE, JSON.stringify(leaderboard)); } catch (e) { /* ignore */ }
+}
+function recordResult(name, didWin) {
+  if (!name) return;
+  const e = leaderboard[name] || (leaderboard[name] = { wins: 0, losses: 0 });
+  if (didWin) e.wins++; else e.losses++;
+  saveLeaderboard();
+}
+
+// Top players as JSON, for the client's start screen.
+app.get("/leaderboard", (_req, res) => {
+  const top = Object.entries(leaderboard)
+    .map(([name, s]) => ({ name, wins: s.wins, losses: s.losses }))
+    .sort((a, b) => b.wins - a.wins || a.losses - b.losses)
+    .slice(0, 10);
+  res.json(top);
+});
 
 const server = http.createServer(app);
 const io = new Server(server);
@@ -68,6 +95,7 @@ function createMatch(a, b) {
   const match = {
     id,
     sockets: { A: a, B: b },
+    names: { A: a.data.name || "Player A", B: b.data.name || "Player B" },
     resources: {
       A: { gold: 100, steel: 200, fuel: 150 },
       B: { gold: 100, steel: 200, fuel: 150 },
@@ -89,7 +117,9 @@ function createMatch(a, b) {
   a.join(id); b.join(id);
 
   const payload = (team) => ({ matchId: id, yourTeam: team, world: WORLD,
-                               unitTypes: UNIT_TYPES, buildings: BUILDINGS });
+                               unitTypes: UNIT_TYPES, buildings: BUILDINGS,
+                               yourName: match.names[team],
+                               opponentName: match.names[team === "A" ? "B" : "A"] });
   a.emit("matchStart", payload("A"));
   b.emit("matchStart", payload("B"));
   console.log(`Match ${id} started: ${a.id} (A) vs ${b.id} (B)`);
@@ -99,7 +129,11 @@ function createMatch(a, b) {
 function endMatch(match, winnerTeam, reason) {
   if (match.over) return;
   match.over = true;
-  io.to(match.id).emit("gameOver", { winner: winnerTeam, reason });
+  const loserTeam = winnerTeam === "A" ? "B" : "A";
+  recordResult(match.names[winnerTeam], true);
+  recordResult(match.names[loserTeam], false);
+  io.to(match.id).emit("gameOver", { winner: winnerTeam, reason,
+                                     winnerName: match.names[winnerTeam] });
   setTimeout(() => matches.delete(match.id), 2000);
   console.log(`Match ${match.id} over — ${winnerTeam} wins (${reason})`);
 }
@@ -271,8 +305,10 @@ function snapshot(match, team) {
 io.on("connection", (socket) => {
   console.log("connected:", socket.id);
 
-  socket.on("findMatch", () => {
+  socket.on("findMatch", (opts) => {
     if (socket.data.matchId) return;
+    const raw = (opts && typeof opts.name === "string") ? opts.name : "";
+    socket.data.name = raw.trim().slice(0, 16) || ("Player-" + socket.id.slice(0, 4));
     if (waiting && waiting.id !== socket.id && waiting.connected) {
       const opp = waiting; waiting = null;
       createMatch(opp, socket);
