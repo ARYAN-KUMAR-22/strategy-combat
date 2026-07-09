@@ -121,6 +121,7 @@
   <div class="res">🛢️ <b id="r-fuel">0</b></div>
   <div class="res">💰 <b id="r-gold">0</b></div>
   <div class="res">🌍 <b id="r-players">0</b><span>in world</span></div>
+  <div class="res">⛏ <b id="r-nodes">0</b><span>nodes</span></div>
   <span id="shield-badge">🛡️ Protected</span>
   <div id="buildbar"></div>
   <button class="ubtn" id="btn-turret"><span class="nm">🏗️ Turret</span><span class="ct" id="turret-cost"></span></button>
@@ -129,7 +130,7 @@
 
 <div id="help" style="display:none">
   <b>Left-drag</b> select · <b>Right-click</b> move / attack · <b>Wheel</b> zoom · <b>WASD</b> pan<br>
-  Build troops from the top bar (ancient → modern). Destroy the enemy HQ to win.
+  Build troops (ancient → modern). Move units onto ⛏ nodes to capture them for bonus income. Destroy enemy HQs.
 </div>
 
 <div id="selinfo" style="display:none"></div>
@@ -418,6 +419,7 @@ function heightAt(wx, wz) {
   return h;
 }
 const entityObjs = new Map();                    // id -> { group, pick, hpFg, kind, team, type }
+const nodeObjs = new Map();                      // node id -> { group, orb, label, barFg, barGrp, owner }
 let pickList = [];                               // pick proxies for raycasting
 
 function initThree() {
@@ -533,6 +535,13 @@ function drawMinimap() {
   mc.fillStyle = "rgba(11,15,20,0.82)"; mc.fillRect(0, 0, W, H);
   if (latest) {
     const cx = camTarget.x / S, cz = camTarget.z / S, half = 1700, sc = (W / 2) / half;
+    for (const nd of latest.nodes || []) {           // resource nodes as diamonds
+      const px = W / 2 + (nd.x - cx) * sc, py = H / 2 + (nd.y - cz) * sc;
+      if (px < 0 || px > W || py < 0 || py > H) continue;
+      mc.save(); mc.translate(px, py); mc.rotate(Math.PI / 4);
+      mc.fillStyle = !nd.owner ? "#c9ced3" : (nd.owner === myTeam ? "#4c8dff" : "#ef4444");
+      mc.fillRect(-2.5, -2.5, 5, 5); mc.restore();
+    }
     for (const e of latest.entities) {
       const px = W / 2 + (e.x - cx) * sc, py = H / 2 + (e.y - cz) * sc;
       if (px < 0 || px > W || py < 0 || py > H) continue;
@@ -763,6 +772,23 @@ function buildBaseModel(team) {
   label.position.set(0, 18, 0); g.add(label);
   return g;
 }
+function nodeColor(owner) { return !owner ? 0x9aa0a6 : (owner === myTeam ? 0x4c8dff : 0xef4444); }
+function buildNodeModel(owner) {
+  const g = new THREE.Group();
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(4, 5, 2.4, 10), mat(0x6b7075));
+  base.position.y = 1.2; base.castShadow = true; g.add(base);
+  for (let i = 0; i < 4; i++) {                    // derrick legs
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 9, 5), mat(0x8a8f96));
+    const a = i * Math.PI / 2;
+    leg.position.set(Math.cos(a) * 1.8, 6.5, Math.sin(a) * 1.8);
+    leg.rotation.z = i % 2 ? 0.12 : -0.12; leg.rotation.x = i < 2 ? 0.12 : -0.12;
+    g.add(leg);
+  }
+  const orb = new THREE.Mesh(new THREE.SphereGeometry(1.8, 12, 8), mat(nodeColor(owner)));
+  orb.position.y = 11.5; orb.name = "ORB"; orb.castShadow = true; g.add(orb);
+  return g;
+}
+
 function buildTurretModel(team) {
   const g = new THREE.Group();
   const base = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 2.2, 2.4, 10), mat(teamColor(team, true)));
@@ -795,6 +821,41 @@ function makePick(id) {
 function clearScene() {
   for (const o of entityObjs.values()) { scene.remove(o.group); scene.remove(o.pick); }
   entityObjs.clear(); pickList = [];
+  for (const o of nodeObjs.values()) scene.remove(o.group);
+  nodeObjs.clear();
+}
+
+// Render capturable resource nodes: colour by owner, show a capture bar when contested.
+function syncNodes() {
+  if (!latest || !latest.nodes) return;
+  const seen = new Set();
+  for (const nd of latest.nodes) {
+    seen.add(nd.id);
+    let o = nodeObjs.get(nd.id);
+    if (!o) {
+      const group = buildNodeModel(nd.owner);
+      group.position.set(nd.x * S, heightAt(nd.x, nd.y), nd.y * S);
+      const bar = makeHpBar(); bar.grp.position.y = 15; bar.grp.visible = false; group.add(bar.grp);
+      scene.add(group);
+      o = { group, orb: group.getObjectByName("ORB"), label: null, barFg: bar.fg, barGrp: bar.grp, owner: " " };
+      nodeObjs.set(nd.id, o);
+    }
+    if (o.owner !== nd.owner) {                     // ownership changed → recolour + relabel
+      o.owner = nd.owner;
+      o.orb.material.color.setHex(nodeColor(nd.owner));
+      if (o.label) o.group.remove(o.label);
+      o.label = makeLabelSprite(nd.owner || "Neutral", nd.owner ? (nd.owner === myTeam ? "#8fb0ff" : "#ff9a9a") : "#cdd6e0");
+      o.label.position.set(0, 17, 0); o.group.add(o.label);
+    }
+    const capturing = nd.capBy && nd.cap < 100 && nd.capBy !== nd.owner;
+    o.barGrp.visible = !!capturing;
+    if (capturing) {
+      const rr = nd.cap / 100;
+      o.barFg.scale.x = rr; o.barFg.position.x = -(4 * (1 - rr)) / 2;
+      o.barFg.material.color.setHex(nd.capBy === myTeam ? 0x3fb950 : 0xf85149);
+    }
+  }
+  for (const [id, o] of nodeObjs) if (!seen.has(id)) { scene.remove(o.group); nodeObjs.delete(id); }
 }
 
 // ---- Sync meshes to the latest snapshot -------------------------------------
@@ -975,6 +1036,7 @@ function syncHud() {
   document.getElementById("r-fuel").textContent = Math.floor(latest.resources.fuel);
   document.getElementById("r-gold").textContent = Math.floor(latest.resources.gold);
   document.getElementById("r-players").textContent = latest.playersInWorld || 1;
+  document.getElementById("r-nodes").textContent = latest.myNodes || 0;
   document.getElementById("shield-badge").style.display = latest.youShielded ? "inline" : "none";
 }
 
@@ -984,6 +1046,7 @@ function loop() {
     if (resetCameraOnStart && centerOnMyBase()) resetCameraOnStart = false;
     updateCamera();
     syncEntities();
+    syncNodes();
     syncHud();
     updateEffects(fdt);
     updateSelInfo();

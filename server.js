@@ -97,12 +97,16 @@ const WORLD = { w: COLS * SLOT, h: ROWS * SLOT };
 const CELL = 220;                                    // spatial-grid cell size
 const VIEW = 1100;                                   // interest radius sent to each client
 const SHIELD_MS = 15000;                             // spawn protection duration (until you attack)
+const CAP_RADIUS = 150;                              // how close units must be to capture a node
+const CAP_TIME = 6;                                  // seconds of uncontested presence to flip a node
+const NODE_STEEL = 5, NODE_FUEL = 4, NODE_GOLD = 3;  // bonus resources/sec per owned node
 
 // ---- Shared world state -----------------------------------------------------
 const world = {
   entities: new Map(),                               // id -> entity
   bullets: [],
   players: new Map(),                                // username -> player record
+  nodes: [],                                         // capturable resource points
   tick: 0,
 };
 const freeSlots = [];
@@ -111,6 +115,11 @@ function slotCenter(slot) {
   const col = slot % COLS, row = (slot / COLS) | 0;
   return { x: col * SLOT + SLOT / 2, y: row * SLOT + SLOT / 2 };
 }
+// Resource nodes sit on the borders between territories — natural contested points.
+let nodeId = 1;
+for (let c = 1; c < COLS; c++)
+  for (let r = 1; r < ROWS; r++)
+    world.nodes.push({ id: nodeId++, x: c * SLOT, y: r * SLOT, owner: null, cap: 0, capBy: null });
 
 let nextId = 1;
 const newId = () => nextId++;
@@ -132,6 +141,27 @@ function pickSpawnSlot() {
   return best;
 }
 function isShielded(team) { const p = world.players.get(team); return !!(p && p.shieldUntil > Date.now()); }
+function releaseNodes(username) {
+  for (const nd of world.nodes) if (nd.owner === username) { nd.owner = null; nd.cap = 0; nd.capBy = null; }
+}
+// Capture: a node flips to a team after CAP_TIME seconds of uncontested presence.
+function updateNodes(dt, grid) {
+  for (const nd of world.nodes) {
+    const cx = (nd.x / CELL) | 0, cy = (nd.y / CELL) | 0, rc = Math.ceil(CAP_RADIUS / CELL);
+    const teams = new Set();
+    for (let gx = cx - rc; gx <= cx + rc; gx++)
+      for (let gy = cy - rc; gy <= cy + rc; gy++) {
+        const arr = grid.get(gx + "," + gy); if (!arr) continue;
+        for (const e of arr) if (e.kind === "unit" && dist(e, nd) <= CAP_RADIUS) teams.add(e.team);
+      }
+    if (teams.size !== 1) continue;                  // 0 = idle, >1 = contested → frozen
+    const t = [...teams][0];
+    if (t === nd.owner) { nd.cap = 100; nd.capBy = t; continue; }
+    if (nd.capBy !== t) { nd.capBy = t; nd.cap = 0; } // a new challenger restarts the capture
+    nd.cap += (100 / CAP_TIME) * dt;
+    if (nd.cap >= 100) { nd.owner = t; nd.cap = 100; }
+  }
+}
 
 function makeUnit(type, x, y, team) {
   const t = UNIT_TYPES[type];
@@ -189,6 +219,7 @@ function cleanupPlayer(username) {                    // on disconnect — no lo
   const p = world.players.get(username);
   if (!p) return;
   removeEntitiesOf(username);
+  releaseNodes(username);
   freeSlots.push(p.slot);
   world.players.delete(username);
 }
@@ -196,6 +227,7 @@ function eliminatePlayer(username, killer) {          // HQ destroyed — record
   const p = world.players.get(username);
   if (!p) return;
   removeEntitiesOf(username);
+  releaseNodes(username);
   freeSlots.push(p.slot);
   world.players.delete(username);
   if (killer && killer !== username) store.recordResult(killer, true).catch(() => {});
@@ -253,6 +285,11 @@ function step(dt) {
   for (const p of world.players.values()) { p.res.gold += 6 * dt; p.res.steel += 10 * dt; p.res.fuel += 8 * dt; }
 
   const grid = buildGrid();
+  updateNodes(dt, grid);
+  for (const nd of world.nodes) if (nd.owner) {      // captured nodes pay their owner
+    const p = world.players.get(nd.owner);
+    if (p) { p.res.steel += NODE_STEEL * dt; p.res.fuel += NODE_FUEL * dt; p.res.gold += NODE_GOLD * dt; }
+  }
 
   for (const e of world.entities.values()) {
     if (e.hp <= 0) continue;
@@ -370,8 +407,14 @@ function snapshotFor(username, p, grid, shielded) {
                    tx: t ? Math.round(t.x) : b.x, ty: t ? Math.round(t.y) : b.y, team: b.team });
   }
   const deaths = pendingDeaths.filter(d => Math.abs(d.x - cx) <= VIEW && Math.abs(d.y - cy) <= VIEW);
-  return { you: username, world: WORLD, resources: p.res, entities, bullets, deaths, alive: true,
-           playersInWorld: world.players.size, youShielded: shielded.has(username) };
+  const nodes = [];
+  for (const nd of world.nodes) {
+    if (Math.abs(nd.x - cx) > VIEW || Math.abs(nd.y - cy) > VIEW) continue;
+    nodes.push({ id: nd.id, x: nd.x, y: nd.y, owner: nd.owner, cap: Math.round(nd.cap), capBy: nd.capBy });
+  }
+  let myNodes = 0; for (const nd of world.nodes) if (nd.owner === username) myNodes++;
+  return { you: username, world: WORLD, resources: p.res, entities, bullets, deaths, nodes, alive: true,
+           playersInWorld: world.players.size, youShielded: shielded.has(username), myNodes };
 }
 
 // ---- Socket wiring ----------------------------------------------------------
