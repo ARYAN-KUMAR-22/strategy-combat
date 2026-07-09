@@ -45,7 +45,9 @@ async function tokenFor(u) {
     console.log(`clients connected : ${connected}`);
     console.log(`connect errors    : ${errors}`);
     console.log(`server online     : ${st.online}`);
-    console.log(`live matches      : ${st.matches}`);
+    console.log(`players in world  : ${st.inWorld}`);
+    console.log(`entities in world : ${st.entities}`);
+    console.log(`storage backend   : ${st.storage}`);
     console.log(`connect time      : ${((Date.now() - t0) / 1000).toFixed(1)}s`);
     console.log("=================================================");
     process.exit(0);

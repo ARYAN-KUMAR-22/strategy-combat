@@ -94,8 +94,8 @@
 
   <!-- Play panel (logged in) -->
   <div id="play-panel" style="display:none">
-    <p id="ov-text">Welcome, <b id="who">player</b>.</p>
-    <button id="ov-btn">🔍 Find Match</button>
+    <p id="ov-text">Welcome, <b id="who">player</b>. Enter the shared battlefield — everyone plays on one map.</p>
+    <button id="ov-btn">⚔️ Enter Battlefield</button>
     <button id="logout-btn">Log out</button>
   </div>
 
@@ -204,8 +204,8 @@ document.getElementById("logout-btn").addEventListener("click", () => {
 document.getElementById("ov-btn").addEventListener("click", () => {
   if (!socket) return;
   socket.emit("findMatch");
-  document.getElementById("ov-text").textContent = "Searching for an opponent…";
-  const b = document.getElementById("ov-btn"); b.disabled = true; b.textContent = "Waiting…";
+  const b = document.getElementById("ov-btn"); b.disabled = true; b.textContent = "Entering…";
+  setTimeout(() => { b.disabled = false; b.textContent = "⚔️ Enter Battlefield"; }, 1500);
 });
 
 // ---- Socket (connected only after login, carrying the JWT) ------------------
@@ -236,6 +236,7 @@ function connectSocket() {
     document.getElementById("opp-name").textContent = info.opponentName || "Enemy";
     buildBuildBar();
     document.getElementById("turret-cost").textContent = costStr(BUILDINGS.turret.cost);
+    if (info.spawnX != null && camTarget) camTarget.set(info.spawnX * S, 0, info.spawnY * S);
     resetCameraOnStart = true;
   });
   socket.on("state", (snap) => { latest = snap; });
@@ -248,7 +249,7 @@ function connectSocket() {
       (won ? "You destroyed the enemy HQ. " : "Your HQ was destroyed. ") + "(" + reason + ")";
     document.getElementById("play-panel").style.display = "flex";
     document.getElementById("auth-panel").style.display = "none";
-    const b = document.getElementById("ov-btn"); b.disabled = false; b.textContent = "🔍 Find New Match";
+    const b = document.getElementById("ov-btn"); b.disabled = false; b.textContent = "↻ Respawn";
     document.getElementById("hud").style.display = "none";
     document.getElementById("help").style.display = "none";
     myTeam = null; latest = null; selected.clear(); clearScene();
@@ -301,7 +302,7 @@ const S = 0.12;                                  // world units -> scene units
 const WX = () => WORLD.w * S, WZ = () => WORLD.h * S;
 const canvas = document.getElementById("scene");
 let renderer, scene, camera, ground, raycaster, ndc, clouds;
-let camTarget, camZoom = 1, resetCameraOnStart = false;
+let camTarget, camZoom = 1, resetCameraOnStart = false, viewFrame = 0;
 const entityObjs = new Map();                    // id -> { group, pick, hpFg, kind, team, type }
 let pickList = [];                               // pick proxies for raycasting
 
@@ -699,6 +700,8 @@ function loop() {
     if (clouds) {                          // drift clouds slowly, wrap around
       for (const c of clouds.children) { c.position.x += 0.03; if (c.position.x > WX() + 20) c.position.x = -20; }
     }
+    // tell the server where we're looking (interest management)
+    if (socket && myTeam && (++viewFrame % 20 === 0)) socket.emit("view", { x: camTarget.x / S, y: camTarget.z / S });
     renderer.render(scene, camera);
   } catch (err) { showErr("Render error: " + err.message); console.error(err); }
   requestAnimationFrame(loop);

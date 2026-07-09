@@ -47,6 +47,28 @@ Gives you `https://your-app.fly.dev`.
 
 ---
 
+## Persistent accounts with Postgres (recommended for real deploys)
+
+By default the server stores accounts in a local `users.json` file. On hosts with an
+**ephemeral filesystem (Render free tier)** that resets on every redeploy. To make
+accounts and leaderboard **survive redeploys**, point the server at Postgres — the code
+auto-detects it and creates its table on first boot. No file changes needed.
+
+### On Render
+1. Dashboard → **New** → **PostgreSQL** → create a free instance.
+2. Copy its **Internal Database URL**.
+3. On your web service → **Environment** → add:
+   - `DATABASE_URL` = the URL you copied
+   - `JWT_SECRET` = any long random string (so logins survive restarts)
+4. Redeploy. Logs will show `[store] Postgres connected`.
+
+### Anywhere else (Neon, Supabase, Railway, a VPS)
+Just set the same `DATABASE_URL` env var. If your provider doesn't use SSL, also set
+`PGSSL=disable`. Local dev with no `DATABASE_URL` keeps using the JSON file automatically.
+
+### Verify which backend is live
+`GET /status` returns `"storage": "pg"` or `"storage": "file"`.
+
 ## After deploying
 
 - The client connects with `io()` (same origin), so **no code change is needed** —
