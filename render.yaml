@@ -1,0 +1,12 @@
+# Render.com blueprint — deploys the multiplayer server as a free web service.
+# On Render: New → Blueprint → connect this repo → it reads this file automatically.
+services:
+  - type: web
+    name: strategy-combat
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: "20"

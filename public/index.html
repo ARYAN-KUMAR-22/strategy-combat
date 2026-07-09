@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Strategy Combat — Online 1v1</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0d1117; overflow: hidden;
+    font-family: "Segoe UI", Tahoma, sans-serif; color: #e6edf3; user-select: none; }
+  #game { display: block; background: #c3ccd6; cursor: crosshair; }
+  #hud { position: fixed; top: 0; left: 0; right: 0; height: 44px; display: flex;
+    align-items: center; gap: 18px; padding: 0 14px; background: linear-gradient(#1c2530,#131a22);
+    border-bottom: 1px solid #2b3846; font-size: 13px; z-index: 3; }
+  #hud .res b { color: #7fd6ff; font-variant-numeric: tabular-nums; }
+  #hud .res span { color: #8b99a6; font-size: 11px; margin-left: 3px; }
+  #hud .spacer { flex: 1; }
+  #hud button { background: #21262d; color: #e6edf3; border: 1px solid #30363d;
+    padding: 6px 10px; border-radius: 5px; font-size: 12px; cursor: pointer; }
+  #hud button:hover { border-color: #58a6ff; }
+  #hud button.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+  #overlay { position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 18px; z-index: 10;
+    background: radial-gradient(circle at 50% 40%, #16202b, #0d1117); text-align: center; }
+  #overlay h1 { margin: 0; font-size: 34px; letter-spacing: 1px; }
+  #overlay p { margin: 0; color: #8b99a6; max-width: 460px; line-height: 1.6; }
+  #overlay button { background: #1f6feb; color: #fff; border: 0; padding: 12px 26px;
+    border-radius: 7px; font-size: 15px; font-weight: 600; cursor: pointer; }
+  #overlay button:hover { background: #388bfd; }
+  #overlay.hidden { display: none; }
+  #help { position: fixed; bottom: 10px; left: 10px; font-size: 12px; color: #8b99a6;
+    background: rgba(20,26,34,.72); padding: 8px 12px; border-radius: 6px; line-height: 1.7; z-index: 3; }
+  #help b { color: #cdd6e0; }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:4px; }
+</style>
+</head>
+<body>
+
+<div id="overlay">
+  <h1>⚔️ Strategy Combat — Online 1v1</h1>
+  <p id="ov-text">Click below to find an opponent. Open this page in a second tab
+     (or send it to a friend on the same network) and click Find Match there too —
+     you'll be matched together and fight in real time.</p>
+  <button id="ov-btn">🔍 Find Match</button>
+</div>
+
+<div id="hud" style="display:none">
+  <div class="res"><span id="team-dot" class="dot"></span><b id="team-name">—</b></div>
+  <div class="res">⚙️ <b id="r-steel">0</b><span>Steel</span></div>
+  <div class="res">🛢️ <b id="r-fuel">0</b><span>Fuel</span></div>
+  <div class="res">💰 <b id="r-gold">0</b><span>Gold</span></div>
+  <div class="spacer"></div>
+  <button data-build="scout">Scout (20⚙️/15🛢️)</button>
+  <button data-build="tank">Tank (50⚙️/30🛢️)</button>
+  <button data-build="artillery">Artillery (80⚙️/55🛢️)</button>
+  <button id="btn-turret" data-place="turret">🏗️ Turret (120⚙️/40🛢️)</button>
+</div>
+
+<div id="help" style="display:none">
+  <b>Left-drag</b> select · <b>Right-click</b> move / attack · <b>1</b>/<b>2</b>/<b>3</b> build scout/tank/artillery<br>
+  <b>Turret</b> button then click near your base to place · Destroy the enemy HQ to win.
+</div>
+
+<canvas id="game"></canvas>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+"use strict";
+const socket = io();
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+function resize() { canvas.width = innerWidth; canvas.height = innerHeight - 44; canvas.style.marginTop = "44px"; }
+addEventListener("resize", resize); resize();
+
+let WORLD = { w: 2000, h: 1400 };
+let UNIT_TYPES = {}, BUILDINGS = {};
+const camera = { x: 0, y: 0 };
+let myTeam = null;
+let latest = null;            // most recent server snapshot
+let placingBuilding = null;   // e.g. "turret" when in placement mode
+const selected = new Set();   // ids of my selected units
+
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function s2w(sx, sy) { return { x: sx + camera.x, y: sy + camera.y }; }
+function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+// ---- Networking events ------------------------------------------------------
+document.getElementById("ov-btn").addEventListener("click", () => {
+  socket.emit("findMatch");
+  document.getElementById("ov-text").textContent = "Searching for an opponent…";
+  document.getElementById("ov-btn").disabled = true;
+  document.getElementById("ov-btn").textContent = "Waiting…";
+});
+
+socket.on("waiting", () => {
+  document.getElementById("ov-text").textContent =
+    "Waiting for a second player. Open this same URL in another tab and click Find Match.";
+});
+
+socket.on("matchStart", (info) => {
+  myTeam = info.yourTeam; WORLD = info.world;
+  UNIT_TYPES = info.unitTypes; BUILDINGS = info.buildings;
+  document.getElementById("overlay").classList.add("hidden");
+  document.getElementById("hud").style.display = "flex";
+  document.getElementById("help").style.display = "block";
+  const dot = document.getElementById("team-dot");
+  document.getElementById("team-name").textContent = myTeam === "A" ? "You (Blue)" : "You (Blue)";
+  dot.style.background = "#388bfd";
+  // center camera on my base once the first snapshot arrives (handled in render)
+  camera.centered = false;
+});
+
+socket.on("state", (snap) => { latest = snap; });
+
+socket.on("gameOver", ({ winner, reason }) => {
+  const won = winner === myTeam;
+  const ov = document.getElementById("overlay");
+  ov.classList.remove("hidden");
+  ov.querySelector("h1").textContent = won ? "🏆 VICTORY" : "💀 DEFEAT";
+  document.getElementById("ov-text").textContent =
+    (won ? "You destroyed the enemy HQ. " : "Your HQ was destroyed. ") + "(" + reason + ")";
+  const btn = document.getElementById("ov-btn");
+  btn.disabled = false; btn.textContent = "🔍 Find New Match";
+  document.getElementById("hud").style.display = "none";
+  document.getElementById("help").style.display = "none";
+  myTeam = null; latest = null; selected.clear();
+});
+
+// ---- Build / place buttons --------------------------------------------------
+document.querySelectorAll("#hud [data-build]").forEach(btn => {
+  btn.addEventListener("click", () => socket.emit("build", { type: btn.dataset.build }));
+});
+const turretBtn = document.getElementById("btn-turret");
+turretBtn.addEventListener("click", () => {
+  placingBuilding = placingBuilding === "turret" ? null : "turret";
+  turretBtn.classList.toggle("active", !!placingBuilding);
+});
+
+addEventListener("keydown", (e) => {
+  if (e.key === "1") socket.emit("build", { type: "scout" });
+  if (e.key === "2") socket.emit("build", { type: "tank" });
+  if (e.key === "3") socket.emit("build", { type: "artillery" });
+  if (e.key === "Escape") { placingBuilding = null; turretBtn.classList.remove("active"); }
+});
+
+// ---- Mouse: select + command ------------------------------------------------
+let drag = null;
+canvas.addEventListener("mousedown", (e) => {
+  if (e.button === 0) {
+    if (placingBuilding) {           // placement click, not a drag
+      const w = s2w(e.offsetX, e.offsetY);
+      socket.emit("placeBuilding", { type: placingBuilding, x: w.x, y: w.y });
+      placingBuilding = null; turretBtn.classList.remove("active");
+      return;
+    }
+    drag = { x0: e.offsetX, y0: e.offsetY, x1: e.offsetX, y1: e.offsetY };
+  }
+});
+canvas.addEventListener("mousemove", (e) => { if (drag) { drag.x1 = e.offsetX; drag.y1 = e.offsetY; } });
+addEventListener("mouseup", (e) => {
+  if (e.button !== 0 || !drag || !latest) { drag = null; return; }
+  const a = s2w(Math.min(drag.x0, drag.x1), Math.min(drag.y0, drag.y1));
+  const b = s2w(Math.max(drag.x0, drag.x1), Math.max(drag.y0, drag.y1));
+  const isClick = Math.hypot(drag.x1 - drag.x0, drag.y1 - drag.y0) < 5;
+  selected.clear();
+  for (const e2 of latest.entities) {
+    if (e2.kind !== "unit" || e2.team !== myTeam) continue;
+    if (isClick) { if (dist(e2, s2w(drag.x1, drag.y1)) < e2.r + 6) selected.add(e2.id); }
+    else if (e2.x >= a.x && e2.x <= b.x && e2.y >= a.y && e2.y <= b.y) selected.add(e2.id);
+  }
+  drag = null;
+});
+canvas.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+  if (!latest || selected.size === 0) return;
+  const w = s2w(e.offsetX, e.offsetY);
+  let targetId = null;
+  for (const en of latest.entities) {
+    if (en.team === myTeam) continue;
+    if (dist(en, w) < en.r + 8) { targetId = en.id; break; }
+  }
+  socket.emit("command", { unitIds: [...selected], x: w.x, y: w.y, targetId });
+});
+
+// camera pan with WASD / arrows
+const keys = {};
+addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
+addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
+
+// ---- Rendering --------------------------------------------------------------
+function hpBar(sx, sy, w, ratio) {
+  ctx.fillStyle = "rgba(0,0,0,.5)"; ctx.fillRect(sx - w/2, sy, w, 4);
+  ctx.fillStyle = ratio > .5 ? "#3fb950" : ratio > .25 ? "#d29922" : "#f85149";
+  ctx.fillRect(sx - w/2, sy, w * Math.max(0, ratio), 4);
+}
+
+function colorFor(e) {
+  const mine = e.team === myTeam;
+  if (e.kind === "base") return mine ? "#1f6feb" : "#f85149";
+  if (e.kind === "building") return mine ? "#2ea043" : "#bb8009";
+  return mine ? "#388bfd" : "#da3633";
+}
+
+function render() {
+  // pan
+  const pan = 9;
+  if (keys["a"] || keys["arrowleft"]) camera.x -= pan;
+  if (keys["d"] || keys["arrowright"]) camera.x += pan;
+  if (keys["w"] || keys["arrowup"]) camera.y -= pan;
+  if (keys["s"] || keys["arrowdown"]) camera.y += pan;
+  camera.x = clamp(camera.x, 0, Math.max(0, WORLD.w - canvas.width));
+  camera.y = clamp(camera.y, 0, Math.max(0, WORLD.h - canvas.height));
+
+  ctx.fillStyle = "#c3ccd6"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // grid
+  ctx.strokeStyle = "rgba(255,255,255,.22)"; ctx.lineWidth = 1;
+  const step = 100, sx0 = -(camera.x % step), sy0 = -(camera.y % step);
+  ctx.beginPath();
+  for (let x = sx0; x < canvas.width; x += step) { ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); }
+  for (let y = sy0; y < canvas.height; y += step) { ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); }
+  ctx.stroke();
+
+  if (!latest) { requestAnimationFrame(render); return; }
+
+  // one-time camera centering on my base
+  if (!camera.centered) {
+    const myBase = latest.entities.find(e => e.kind === "base" && e.team === myTeam);
+    if (myBase) {
+      camera.x = clamp(myBase.x - canvas.width / 2, 0, Math.max(0, WORLD.w - canvas.width));
+      camera.y = clamp(myBase.y - canvas.height / 2, 0, Math.max(0, WORLD.h - canvas.height));
+      camera.centered = true;
+    }
+  }
+
+  // entities: bases & buildings (squares), units (circles)
+  for (const e of latest.entities) {
+    const sx = e.x - camera.x, sy = e.y - camera.y;
+    if (sx < -40 || sy < -40 || sx > canvas.width + 40 || sy > canvas.height + 40) continue;
+
+    if (selected.has(e.id)) {
+      ctx.strokeStyle = "#3fb950"; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(sx, sy, e.r + 5, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.fillStyle = colorFor(e);
+    ctx.strokeStyle = "rgba(0,0,0,.5)"; ctx.lineWidth = 2;
+    if (e.kind === "unit") {
+      ctx.beginPath(); ctx.arc(sx, sy, e.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      if (e.type === "artillery") { ctx.fillStyle = "#fff"; ctx.fillRect(sx - 2, sy - 2, 4, 4); }
+      if (e.type === "scout") { ctx.strokeStyle = "#fff"; ctx.beginPath(); ctx.arc(sx, sy, 3, 0, 6.3); ctx.stroke(); }
+    } else {
+      ctx.beginPath(); ctx.rect(sx - e.r, sy - e.r, e.r * 2, e.r * 2); ctx.fill(); ctx.stroke();
+      if (e.kind === "base") {
+        ctx.fillStyle = "#fff"; ctx.font = "bold 11px Segoe UI"; ctx.textAlign = "center";
+        ctx.fillText(e.team === myTeam ? "YOUR HQ" : "ENEMY", sx, sy + 4);
+      }
+    }
+    hpBar(sx, sy - e.r - 9, e.kind === "unit" ? 26 : e.r * 2, e.hp / e.maxHp);
+  }
+
+  // bullet tracers
+  for (const b of latest.bullets) {
+    ctx.strokeStyle = b.team === myTeam ? "rgba(120,200,255,.9)" : "rgba(255,150,120,.9)";
+    ctx.lineWidth = 2; ctx.beginPath();
+    ctx.moveTo(b.x - camera.x, b.y - camera.y); ctx.lineTo(b.tx - camera.x, b.ty - camera.y); ctx.stroke();
+  }
+
+  // placement ghost
+  if (placingBuilding) {
+    ctx.fillStyle = "rgba(46,160,67,.4)"; ctx.strokeStyle = "#2ea043"; ctx.lineWidth = 2;
+    const r = BUILDINGS.turret.r, m = lastMouse;
+    ctx.fillRect(m.x - r, m.y - r, r * 2, r * 2); ctx.strokeRect(m.x - r, m.y - r, r * 2, r * 2);
+  }
+
+  // selection box
+  if (drag) {
+    ctx.strokeStyle = "#3fb950"; ctx.fillStyle = "rgba(63,185,80,.12)"; ctx.lineWidth = 1.5;
+    const x = Math.min(drag.x0, drag.x1), y = Math.min(drag.y0, drag.y1);
+    ctx.fillRect(x, y, Math.abs(drag.x1 - drag.x0), Math.abs(drag.y1 - drag.y0));
+    ctx.strokeRect(x, y, Math.abs(drag.x1 - drag.x0), Math.abs(drag.y1 - drag.y0));
+  }
+
+  // minimap
+  const mmW = 180, mmH = 126, pad = 12, mmX = canvas.width - mmW - pad, mmY = pad;
+  ctx.fillStyle = "rgba(13,17,23,.85)"; ctx.fillRect(mmX, mmY, mmW, mmH);
+  ctx.strokeStyle = "#2b3846"; ctx.strokeRect(mmX, mmY, mmW, mmH);
+  const rx = mmW / WORLD.w, ry = mmH / WORLD.h;
+  for (const e of latest.entities) {
+    ctx.fillStyle = colorFor(e);
+    const sz = e.kind === "unit" ? 2 : 5;
+    ctx.fillRect(mmX + e.x * rx - sz/2, mmY + e.y * ry - sz/2, sz, sz);
+  }
+  ctx.strokeStyle = "rgba(255,255,255,.5)";
+  ctx.strokeRect(mmX + camera.x * rx, mmY + camera.y * ry, canvas.width * rx, canvas.height * ry);
+
+  // HUD numbers
+  const r = latest.resources;
+  document.getElementById("r-steel").textContent = Math.floor(r.steel);
+  document.getElementById("r-fuel").textContent = Math.floor(r.fuel);
+  document.getElementById("r-gold").textContent = Math.floor(r.gold);
+
+  requestAnimationFrame(render);
+}
+let lastMouse = { x: 0, y: 0 };
+canvas.addEventListener("mousemove", e => { lastMouse = { x: e.offsetX, y: e.offsetY }; });
+requestAnimationFrame(render);
+</script>
+</body>
+</html>
