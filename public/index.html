@@ -114,6 +114,24 @@
   .bm-cell .ic { font-size: 26px; }
   .bm-cell .nm { font-size: 12px; color: #dfe9f2; margin: 6px 0 4px; font-weight: 600; }
   .bm-cell .ct { font-size: 10.5px; color: #8fa8bd; }
+  #buildmenu { position: fixed; top: 70px; left: 50%; transform: translateX(-50%); z-index: 6;
+    width: 680px; max-width: 94vw; background: rgba(24,42,58,.95); border: 1px solid #3a5a74;
+    box-shadow: 0 8px 30px rgba(0,0,0,.6); }
+  #bu-close { cursor: pointer; color: #9db4c8; font-size: 15px; padding: 2px 6px; }
+  #bu-close:hover { color: #fff; }
+  #bu-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; padding: 0 14px 14px;
+    max-height: 60vh; overflow-y: auto; }
+  .bu-cell { background: rgba(14,26,38,.8); border: 1px solid #2c4a63; padding: 9px 6px;
+    text-align: center; cursor: pointer; transition: border-color .12s; }
+  .bu-cell:hover { border-color: #6fb3e0; background: rgba(20,38,54,.9); }
+  .bu-cell.disabled { opacity: .38; }
+  .bu-cell .ic { font-size: 24px; }
+  .bu-cell .nm { font-size: 11.5px; color: #dfe9f2; margin: 4px 0 2px; font-weight: 600; }
+  .bu-cell .nm small { color: #7d98b0; font-weight: 400; }
+  .bu-cell .era { font-size: 9px; color: #5f7a92; text-transform: uppercase; letter-spacing: .6px; }
+  .bu-cell .ct { font-size: 10px; color: #8fa8bd; margin-top: 3px; }
+  .bu-cell.struct { border-color: #3a5a44; }
+  .bu-cell.struct:hover { border-color: #6fe08f; }
   #err { position: fixed; bottom: 10px; right: 10px; z-index: 20; color: #ff7b72;
     font-size: 12px; background: rgba(11,15,20,.9); padding: 6px 10px; border-radius: 6px; display: none; }
 </style>
@@ -177,14 +195,16 @@
   <div class="res cyan"><b id="r-players">0</b><span>Players</span></div>
   <div class="res"><b id="r-nodes">0</b><span>Nodes</span></div>
   <span id="shield-badge">🛡️ Protected</span>
-  <div id="buildbar"></div>
-  <button class="ubtn" id="btn-turret"><span class="nm">🏗️ Turret</span><span class="ct" id="turret-cost"></span></button>
+  <div class="spacer"></div>
+  <button class="ubtn" id="btn-build"><span class="nm">🔨 Build</span><span class="ct">[B]</span></button>
+  <button class="ubtn" id="btn-turret" style="display:none"><span class="nm">🏗️ Turret</span><span class="ct" id="turret-cost"></span></button>
   <button class="ubtn" id="btn-mute" title="Toggle sound"><span class="nm">🔊</span></button>
 </div>
 
 <div id="help" style="display:none">
   <b>Left-drag</b> select · <b>Right-click</b> move / attack · <b>Wheel</b> zoom · <b>WASD</b> pan<br>
-  Build troops (ancient → modern). Move units onto ⛏ nodes to capture them for bonus income. Destroy enemy HQs.
+  <b>B</b> opens the build menu (troops + structures). Click your HQ for defense upgrades.<br>
+  Capture ⛏ nodes for bonus income (destroy their guard first). Destroy enemy HQs to win.
 </div>
 
 <div id="selinfo" style="display:none"></div>
@@ -209,6 +229,12 @@
       <div class="ct" id="bm-turcost2"></div>
     </div>
   </div>
+</div>
+
+<div id="buildmenu" style="display:none">
+  <div class="bm-head">BUILD UNITS &amp; STRUCTURES <span id="bu-close" title="Close">✕</span></div>
+  <div class="bm-sub">click a unit to train it · click a structure, then click near your HQ to place it</div>
+  <div id="bu-grid"></div>
 </div>
 <div id="err"></div>
 
@@ -484,7 +510,7 @@ function connectSocket() {
     document.getElementById("help").style.display = "none";
     document.getElementById("mmwrap").style.display = "none";
     document.getElementById("chatbox").style.display = "none";
-    closeBaseMenu();
+    closeBaseMenu(); closeBuildMenu();
     myTeam = null; latest = null; selected.clear(); clearScene();
     loadLeaderboard();
   });
@@ -500,24 +526,44 @@ function costStr(c) {
   if (c.alu) p.push(c.alu + "Al"); if (c.fuel) p.push(c.fuel + "F"); if (c.gold) p.push(c.gold + "G");
   return p.join(" ");
 }
+const BUILD_ICONS = {
+  warrior: "⚔️", archer: "🏹", knight: "🐴", catapult: "🪨", musketeer: "🔫",
+  cannon: "💣", rifleman: "🪖", tank: "🛡️", artillery: "🎯", helicopter: "🚁",
+  turret: "🗼", steelmill: "🏭", refinery: "🛢️", smelter: "🔥", cementplant: "🏗️",
+};
+// The big icon-grid build menu (like the real game's panel): units first, structures after.
 function buildBuildBar() {
-  const bar = document.getElementById("buildbar"); bar.innerHTML = "";
-  const entries = Object.entries(UNIT_TYPES);
-  let curEra = null, grp = null;
-  entries.forEach(([key, t], idx) => {
-    if (t.era !== curEra) {
-      curEra = t.era;
-      grp = document.createElement("div"); grp.className = "grp";
-      const lbl = document.createElement("span"); lbl.className = "era"; lbl.textContent = t.era;
-      grp.appendChild(lbl); bar.appendChild(grp);
-    }
-    const btn = document.createElement("div"); btn.className = "ubtn";
-    btn.innerHTML = `<span class="nm">${t.label}${idx < 9 ? " <small style='color:#6b7684'>[" + (idx + 1) + "]</small>" : ""}</span><span class="ct">${costStr(t.cost)}</span>`;
-    btn.title = `${t.era} ${t.cls} · HP ${t.hp} · DMG ${t.dmg} · RNG ${t.range}`;
-    btn.addEventListener("click", () => doBuild(key));
-    grp.appendChild(btn);
+  const grid = document.getElementById("bu-grid"); grid.innerHTML = "";
+  Object.entries(UNIT_TYPES).forEach(([key, t], idx) => {
+    const cell = document.createElement("div");
+    cell.className = "bu-cell"; cell.dataset.type = key; cell.dataset.kind = "unit";
+    cell.innerHTML = `<div class="ic">${BUILD_ICONS[key] || "⬛"}</div>` +
+      `<div class="nm">${t.label}${idx < 9 ? ` <small>[${idx + 1}]</small>` : ""}</div>` +
+      `<div class="era">${t.era}</div><div class="ct">${costStr(t.cost)}</div>`;
+    cell.title = `${t.cls} · HP ${t.hp} · DMG ${t.dmg} · RNG ${t.range} · SPD ${t.speed}`;
+    cell.addEventListener("click", () => doBuild(key));
+    grid.appendChild(cell);
+  });
+  Object.entries(BUILDINGS).forEach(([key, b]) => {
+    const cell = document.createElement("div");
+    cell.className = "bu-cell struct"; cell.dataset.type = key; cell.dataset.kind = "struct";
+    cell.innerHTML = `<div class="ic">${BUILD_ICONS[key] || "🏢"}</div>` +
+      `<div class="nm">${b.label || key}</div><div class="era">Structure · max ${b.max || 6}</div>` +
+      `<div class="ct">${costStr(b.cost)}</div>`;
+    cell.title = b.prod
+      ? "Produces " + Object.entries(b.prod).map(([k, v]) => `+${v} ${k}/s`).join(", ")
+      : "Defensive structure";
+    cell.addEventListener("click", () => { placing = key; closeBuildMenu(); });
+    grid.appendChild(cell);
   });
 }
+function toggleBuildMenu() {
+  const m = document.getElementById("buildmenu");
+  m.style.display = m.style.display === "none" ? "block" : "none";
+}
+function closeBuildMenu() { document.getElementById("buildmenu").style.display = "none"; }
+document.getElementById("btn-build").addEventListener("click", () => { Sfx.ensure(); toggleBuildMenu(); });
+document.getElementById("bu-close").addEventListener("click", closeBuildMenu);
 function doBuild(type) {
   Sfx.ensure();
   const t = UNIT_TYPES[type]; if (!t || !socket) return;
@@ -542,10 +588,11 @@ muteBtn.addEventListener("click", () => {
 addEventListener("keydown", (e) => {
   if (!myTeam || typing()) return;
   if (e.key === "Enter") { document.getElementById("chatin").focus(); e.preventDefault(); return; }
+  if (e.key.toLowerCase() === "b") { toggleBuildMenu(); return; }
   const keys = Object.keys(UNIT_TYPES);
   const n = parseInt(e.key, 10);
   if (n >= 1 && n <= 9 && keys[n - 1]) doBuild(keys[n - 1]);
-  if (e.key === "Escape") { placing = null; turretBtn.classList.remove("active"); closeBaseMenu(); }
+  if (e.key === "Escape") { placing = null; turretBtn.classList.remove("active"); closeBaseMenu(); closeBuildMenu(); }
 });
 
 // ================= 3D scene =================================================
@@ -1050,6 +1097,33 @@ function buildBaseModel(team, lvl) {
   label.position.set(0, 18, 0); g.add(label);
   return g;
 }
+// Economy structures — each type gets a distinct little industrial building.
+function buildStructureModel(type) {
+  const g = new THREE.Group();
+  const add = (m) => { m.castShadow = true; g.add(m); return m; };
+  if (type === "steelmill") {
+    add(new THREE.Mesh(new THREE.BoxGeometry(7, 4, 5), mat(0x707880))).position.y = 2;
+    add(new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.9, 7, 8), mat(0x4a4d50))).position.set(2.2, 4.5, 1.2);
+  } else if (type === "refinery") {
+    add(new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 4.5, 12), mat(0x8b9096))).position.set(-1.8, 2.2, 0);
+    add(new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 3.5, 12), mat(0x9aa0a6))).position.set(2, 1.8, 0.5);
+    add(new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 5, 6), mat(0x6b7075))).position.set(0, 2.5, -1.8);
+  } else if (type === "smelter") {
+    add(new THREE.Mesh(new THREE.BoxGeometry(6, 3.6, 5), mat(0x6b5648))).position.y = 1.8;
+    const glow = add(new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.6, 0.3),
+      new THREE.MeshStandardMaterial({ color: 0xff7b33, emissive: 0xff5a1f, emissiveIntensity: 0.8 })));
+    glow.position.set(0, 1.2, 2.6);
+    add(new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.8, 6, 8), mat(0x4a4d50))).position.set(-2, 4, -1);
+  } else if (type === "cementplant") {
+    add(new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 6, 10), mat(0xb8bdc2))).position.set(-1.6, 3, 0);
+    add(new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 5, 10), mat(0xa8adb2))).position.set(1.6, 2.5, 0);
+    add(new THREE.Mesh(new THREE.BoxGeometry(4.5, 1.4, 3), mat(0x8b9096))).position.y = 0.7;
+  } else {
+    add(new THREE.Mesh(new THREE.BoxGeometry(5, 4, 5), mat(0x707880))).position.y = 2;
+  }
+  return g;
+}
+
 function buildGuardModel() {                        // neutral node defence (grey turret)
   const g = new THREE.Group();
   const base = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 3.2, 2.6, 8), mat(0x6b7075)); base.position.y = 1.3; base.castShadow = true; g.add(base);
@@ -1159,7 +1233,7 @@ function syncEntities() {
     if (!o) {
       let group;
       if (e.kind === "base") group = buildBaseModel(e.team, e.lvl);
-      else if (e.kind === "building") group = buildTurretModel(e.team);
+      else if (e.kind === "building") group = e.type === "turret" ? buildTurretModel(e.team) : buildStructureModel(e.type);
       else if (e.kind === "guard") group = buildGuardModel();
       else group = buildUnitModel(e.type, e.team);
       scene.add(group);
@@ -1342,6 +1416,17 @@ function syncHud() {
   document.getElementById("r-nodes").textContent = latest.myNodes || 0;
   document.getElementById("shield-badge").style.display = latest.youShielded ? "inline" : "none";
   refreshBaseMenu();
+  // grey out unaffordable cells while the build menu is open
+  if (document.getElementById("buildmenu").style.display !== "none") {
+    document.querySelectorAll("#bu-grid .bu-cell").forEach(cell => {
+      const def = cell.dataset.kind === "unit" ? UNIT_TYPES[cell.dataset.type] : BUILDINGS[cell.dataset.type];
+      if (!def) return;
+      const c = def.cost;
+      const ok = R.steel >= (c.steel || 0) && R.fuel >= (c.fuel || 0) && R.gold >= (c.gold || 0)
+              && (R.concrete || 0) >= (c.concrete || 0) && (R.alu || 0) >= (c.alu || 0);
+      cell.classList.toggle("disabled", !ok);
+    });
+  }
 }
 
 function loop() {
