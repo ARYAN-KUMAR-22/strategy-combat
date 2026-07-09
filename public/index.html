@@ -114,6 +114,10 @@
   .bm-cell .ic { font-size: 26px; }
   .bm-cell .nm { font-size: 12px; color: #dfe9f2; margin: 6px 0 4px; font-weight: 600; }
   .bm-cell .ct { font-size: 10.5px; color: #8fa8bd; }
+  #structmenu { position: fixed; top: 120px; left: 50%; transform: translateX(-50%); z-index: 6;
+    width: 340px; background: rgba(24,42,58,.94); border: 1px solid #3a5a74; box-shadow: 0 8px 30px rgba(0,0,0,.6); }
+  #sm-close { cursor: pointer; color: #9db4c8; font-size: 15px; padding: 2px 6px; }
+  #sm-close:hover { color: #fff; }
   #buildmenu { position: fixed; top: 70px; left: 50%; transform: translateX(-50%); z-index: 6;
     width: 680px; max-width: 94vw; background: rgba(24,42,58,.95); border: 1px solid #3a5a74;
     box-shadow: 0 8px 30px rgba(0,0,0,.6); }
@@ -235,6 +239,18 @@
   <div class="bm-head">BUILD UNITS &amp; STRUCTURES <span id="bu-close" title="Close">✕</span></div>
   <div class="bm-sub">click a unit to train it · click a structure, then click near your HQ to place it</div>
   <div id="bu-grid"></div>
+</div>
+
+<div id="structmenu" style="display:none">
+  <div class="bm-head"><span id="sm-title">STRUCTURE</span> <span id="sm-close" title="Close">✕</span></div>
+  <div class="bm-sub" id="sm-info">—</div>
+  <div class="bm-grid">
+    <div class="bm-cell" id="sm-upg">
+      <div class="ic">⬆️</div>
+      <div class="nm">Upgrade <span id="sm-lvltxt"></span></div>
+      <div class="ct" id="sm-upcost"></div>
+    </div>
+  </div>
 </div>
 <div id="err"></div>
 
@@ -450,6 +466,39 @@ document.getElementById("bm-tur").addEventListener("click", () => {
   placing = "turret"; turretBtn.classList.add("active");
 });
 
+// ---- Structure upgrade menu (click any of your own buildings) -----------------
+let structMenuId = null;
+function openStructMenu(id) {
+  structMenuId = id;
+  document.getElementById("structmenu").style.display = "block";
+  refreshStructMenu(); Sfx.ensure();
+}
+function closeStructMenu() { structMenuId = null; document.getElementById("structmenu").style.display = "none"; }
+function refreshStructMenu() {
+  if (structMenuId == null) return;
+  const e = latest && latest.entities.find(x => x.id === structMenuId);
+  if (!e || e.team !== myTeam) { closeStructMenu(); return; }
+  const def = BUILDINGS[e.type] || {};
+  const lvl = e.lvl || 0;
+  document.getElementById("sm-title").textContent = (def.label || e.type).toUpperCase() + " · Lv" + lvl;
+  const prod = def.prod
+    ? "produces " + Object.entries(def.prod).map(([k, v]) => `+${(v * (1 + lvl)).toFixed(0)} ${k}/s`).join("  ")
+    : `defense turret · DMG ${(def.dmg || 0) + lvl * 8} · RNG ${(def.range || 0) + lvl * 15}`;
+  document.getElementById("sm-info").textContent = `${prod} · HP ${e.hp}/${e.maxHp}`;
+  if (lvl >= 3) {
+    document.getElementById("sm-lvltxt").textContent = "MAX";
+    document.getElementById("sm-upcost").textContent = "fully upgraded";
+  } else {
+    document.getElementById("sm-lvltxt").textContent = `Lv${lvl} → Lv${lvl + 1}`;
+    const c = {}; for (const k in def.cost) c[k] = def.cost[k] * (lvl + 1);
+    document.getElementById("sm-upcost").textContent = costStr(c);
+  }
+}
+document.getElementById("sm-close").addEventListener("click", closeStructMenu);
+document.getElementById("sm-upg").addEventListener("click", () => {
+  if (socket && structMenuId != null) { socket.emit("upgradeBuilding", { id: structMenuId }); Sfx.build(); }
+});
+
 // ---- Socket (connected only after login, carrying the JWT) ------------------
 function connectSocket() {
   socket = io({ auth: { token } });
@@ -510,7 +559,7 @@ function connectSocket() {
     document.getElementById("help").style.display = "none";
     document.getElementById("mmwrap").style.display = "none";
     document.getElementById("chatbox").style.display = "none";
-    closeBaseMenu(); closeBuildMenu();
+    closeBaseMenu(); closeBuildMenu(); closeStructMenu();
     myTeam = null; latest = null; selected.clear(); clearScene();
     loadLeaderboard();
   });
@@ -592,7 +641,7 @@ addEventListener("keydown", (e) => {
   const keys = Object.keys(UNIT_TYPES);
   const n = parseInt(e.key, 10);
   if (n >= 1 && n <= 9 && keys[n - 1]) doBuild(keys[n - 1]);
-  if (e.key === "Escape") { placing = null; turretBtn.classList.remove("active"); closeBaseMenu(); closeBuildMenu(); }
+  if (e.key === "Escape") { placing = null; turretBtn.classList.remove("active"); closeBaseMenu(); closeBuildMenu(); closeStructMenu(); }
 });
 
 // ================= 3D scene =================================================
@@ -1225,7 +1274,7 @@ function syncEntities() {
   for (const e of latest.entities) {
     seen.add(e.id);
     let o = entityObjs.get(e.id);
-    if (o && e.kind === "base" && o.lvl !== e.lvl) {      // upgraded → rebuild with new label
+    if (o && (e.kind === "base" || e.kind === "building") && o.lvl !== e.lvl) {   // upgraded → rebuild
       scene.remove(o.group); scene.remove(o.pick);
       pickList = pickList.filter(pp => pp.userData.id !== e.id);
       entityObjs.delete(e.id); o = null;
@@ -1236,6 +1285,7 @@ function syncEntities() {
       else if (e.kind === "building") group = e.type === "turret" ? buildTurretModel(e.team) : buildStructureModel(e.type);
       else if (e.kind === "guard") group = buildGuardModel();
       else group = buildUnitModel(e.type, e.team);
+      if (e.kind === "building" && e.lvl) group.scale.setScalar(1 + e.lvl * 0.14);   // upgraded structures grow
       scene.add(group);
       const pick = makePick(e.id); scene.add(pick); pickList.push(pick);
       const hp = makeHpBar(); group.add(hp.grp);
@@ -1338,6 +1388,7 @@ window.addEventListener("mouseup", (e) => {
       const ent = latest.entities.find(x => x.id === id);
       if (ent && ent.kind === "unit" && ent.team === myTeam) selected.add(id);
       else if (ent && ent.kind === "base" && ent.team === myTeam) openBaseMenu();   // your HQ → upgrade menu
+      else if (ent && ent.kind === "building" && ent.team === myTeam) openStructMenu(id);   // your structure → upgrade
     }
   } else {                                    // box select (project unit positions)
     const xmin = Math.min(drag.x0, drag.x1), xmax = Math.max(drag.x0, drag.x1);
@@ -1416,6 +1467,7 @@ function syncHud() {
   document.getElementById("r-nodes").textContent = latest.myNodes || 0;
   document.getElementById("shield-badge").style.display = latest.youShielded ? "inline" : "none";
   refreshBaseMenu();
+  refreshStructMenu();
   // grey out unaffordable cells while the build menu is open
   if (document.getElementById("buildmenu").style.display !== "none") {
     document.querySelectorAll("#bu-grid .bu-cell").forEach(cell => {
