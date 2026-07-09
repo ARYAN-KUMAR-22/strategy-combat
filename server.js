@@ -90,7 +90,7 @@ const TICK_HZ = 20;                 // simulation steps per second
 const SNAPSHOT_EVERY = 2;           // broadcast every 2 ticks (~10/s)
 
 // One shared map, sized to comfortably fit every player's territory.
-const SLOT = 340;                                    // spacing between player HQs
+const SLOT = 440;                                    // spacing between player HQs (larger map)
 const COLS = Math.ceil(Math.sqrt(MAX_PLAYERS));
 const ROWS = Math.ceil(MAX_PLAYERS / COLS);
 const WORLD = { w: COLS * SLOT, h: ROWS * SLOT };
