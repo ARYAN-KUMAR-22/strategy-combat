@@ -114,6 +114,7 @@ function slotCenter(slot) {
 
 let nextId = 1;
 const newId = () => nextId++;
+let pendingDeaths = [];                               // deaths this snapshot window (for FX)
 
 // Spawn as far as possible from existing players so newcomers aren't dropped into a war.
 function pickSpawnSlot() {
@@ -296,7 +297,11 @@ function step(dt) {
 
   const deadBases = [];
   for (const [id, e] of world.entities) {
-    if (e.hp <= 0) { if (e.kind === "base") deadBases.push(e); world.entities.delete(id); }
+    if (e.hp <= 0) {
+      pendingDeaths.push({ x: Math.round(e.x), y: Math.round(e.y), big: e.kind === "base" });
+      if (e.kind === "base") deadBases.push(e);
+      world.entities.delete(id);
+    }
   }
   for (const b of deadBases) eliminatePlayer(b.team, b.lastHitBy);
 
@@ -364,7 +369,8 @@ function snapshotFor(username, p, grid, shielded) {
     bullets.push({ x: Math.round(b.x), y: Math.round(b.y),
                    tx: t ? Math.round(t.x) : b.x, ty: t ? Math.round(t.y) : b.y, team: b.team });
   }
-  return { you: username, world: WORLD, resources: p.res, entities, bullets, alive: true,
+  const deaths = pendingDeaths.filter(d => Math.abs(d.x - cx) <= VIEW && Math.abs(d.y - cy) <= VIEW);
+  return { you: username, world: WORLD, resources: p.res, entities, bullets, deaths, alive: true,
            playersInWorld: world.players.size, youShielded: shielded.has(username) };
 }
 
@@ -422,6 +428,7 @@ setInterval(() => {
     for (const [username, p] of world.players) {
       if (p.socket && p.socket.connected) p.socket.emit("state", snapshotFor(username, p, grid, shielded));
     }
+    pendingDeaths.length = 0;                    // consumed by this snapshot
   }
 }, 1000 / TICK_HZ);
 
