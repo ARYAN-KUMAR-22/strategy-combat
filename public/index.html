@@ -12,8 +12,12 @@
     align-items: center; gap: 14px; padding: 6px 12px; background: linear-gradient(#12181e,#080b0e);
     border-bottom: 2px solid #2b3846; font-size: 13px; z-index: 3; flex-wrap: wrap;
     box-shadow: 0 2px 10px rgba(0,0,0,.5); }
-  #hud .res b { color: #cfe6b0; font-variant-numeric: tabular-nums; font-weight: 700; }
-  #hud .res span { color: #7d8790; font-size: 10px; margin-left: 4px; text-transform: uppercase; letter-spacing: .5px; }
+  #hud .res { display: flex; flex-direction: column; align-items: center; line-height: 1.15; min-width: 56px; }
+  #hud .res b { color: #f0f3f6; font-variant-numeric: tabular-nums; font-weight: 700; font-size: 14px; }
+  #hud .res span { color: #7d8790; font-size: 9px; text-transform: uppercase; letter-spacing: .6px; }
+  #hud .res.gold b { color: #ffd75e; }
+  #hud .res.mil b { color: #cfe6b0; }
+  #hud .res.cyan b { color: #7fd6ff; }
   #hud .spacer { flex: 1; }
   #buildbar { display: flex; gap: 5px; flex-wrap: wrap; }
   #buildbar .grp { display: flex; gap: 5px; align-items: stretch; }
@@ -75,11 +79,27 @@
   #help b { color: #cdd6e0; }
   #selbox { position: fixed; border: 1.5px solid #3fb950; background: rgba(63,185,80,.12);
     pointer-events: none; z-index: 2; display: none; }
-  #selinfo { position: fixed; bottom: 74px; left: 12px; z-index: 3; font-size: 12px; line-height: 1.6;
+  #selinfo { position: fixed; bottom: 200px; left: 10px; z-index: 3; font-size: 12px; line-height: 1.6;
     background: rgba(11,15,20,.8); border: 1px solid #2b3846; border-radius: 6px; padding: 7px 11px; color: #adbac7; }
   #selinfo b { color: #cdd6e0; }
-  #minimap { position: fixed; bottom: 12px; right: 12px; z-index: 3;
-    border: 1px solid #2b3846; border-radius: 8px; background: rgba(11,15,20,.82); }
+  #mmwrap { position: fixed; top: 52px; right: 10px; z-index: 3; display: flex;
+    flex-direction: column; align-items: flex-end; gap: 4px; }
+  #minimap { border: 1px solid #2b3846; background: rgba(11,15,20,.85); display: block; }
+  #mmcoords { font-size: 11px; color: #9aa5af; background: rgba(11,15,20,.75); padding: 2px 8px;
+    font-variant-numeric: tabular-nums; letter-spacing: .5px; width: 100%; text-align: right; box-sizing: border-box; }
+  #mmburger { font-size: 20px; color: #cdd6e0; background: rgba(11,15,20,.85); border: 1px solid #2b3846;
+    width: 36px; height: 32px; display: flex; align-items: center; justify-content: center;
+    cursor: pointer; border-radius: 4px; }
+  #mmburger:hover { border-color: #58a6ff; }
+  #chatbox { position: fixed; bottom: 10px; left: 10px; z-index: 3; display: flex;
+    flex-direction: column; width: 330px; }
+  #chatlog { max-height: 148px; overflow-y: auto; background: rgba(8,11,14,.72); padding: 6px 9px;
+    font-size: 11.5px; line-height: 1.55; border-radius: 4px 4px 0 0; }
+  #chatlog .t { color: #6b7684; margin-right: 4px; font-variant-numeric: tabular-nums; }
+  #chatlog .n { font-weight: 700; }
+  #chatin { background: rgba(8,11,14,.85); border: 1px solid #2b3846; border-top: 0; color: #e6edf3;
+    padding: 5px 9px; font-size: 12px; border-radius: 0 0 4px 4px; }
+  #chatin:focus { outline: none; border-color: #58a6ff; }
   #err { position: fixed; bottom: 10px; right: 10px; z-index: 20; color: #ff7b72;
     font-size: 12px; background: rgba(11,15,20,.9); padding: 6px 10px; border-radius: 6px; display: none; }
 </style>
@@ -88,7 +108,16 @@
 
 <canvas id="scene"></canvas>
 <div id="selbox"></div>
-<canvas id="minimap" width="176" height="176" style="display:none"></canvas>
+<div id="mmwrap" style="display:none">
+  <canvas id="minimap" width="196" height="196"></canvas>
+  <div id="mmcoords">—</div>
+  <div id="mmburger" title="Toggle help">☰</div>
+</div>
+
+<div id="chatbox" style="display:none">
+  <div id="chatlog"></div>
+  <input id="chatin" maxlength="120" placeholder="Press Enter to chat…" autocomplete="off">
+</div>
 
 <div id="overlay">
   <h1>⚔️ Strategy Combat — 3D Online</h1>
@@ -123,13 +152,16 @@
 </div>
 
 <div id="hud" style="display:none">
-  <div class="res"><span id="team-dot" class="dot"></span><b id="team-name">—</b><span id="vs"> · </span><b id="opp-name">FFA</b></div>
-  <div class="res">🗺️ <b id="map-name">—</b></div>
-  <div class="res">⚙️ <b id="r-steel">0</b><span>Steel</span></div>
-  <div class="res">🛢️ <b id="r-fuel">0</b><span>Fuel</span></div>
-  <div class="res">💰 <b id="r-gold">0</b><span>Gold</span></div>
-  <div class="res">🌍 <b id="r-players">0</b><span>in world</span></div>
-  <div class="res">⛏ <b id="r-nodes">0</b><span>nodes</span></div>
+  <div class="res"><b id="r-concrete">0</b><span>Concrete</span></div>
+  <div class="res"><b id="r-steel">0</b><span>Steel</span></div>
+  <div class="res"><b id="r-alu">0</b><span>Aluminium</span></div>
+  <div class="res"><b id="r-fuel">0</b><span>Fuel</span></div>
+  <div class="res mil"><b id="r-mil">0</b><span>Military</span></div>
+  <div class="res cyan"><b id="r-bases">0</b><span>Bases</span></div>
+  <div class="res"><b id="r-groups">0</b><span>Groups</span></div>
+  <div class="res gold"><b id="r-gold">0</b><span>Gold</span></div>
+  <div class="res cyan"><b id="r-players">0</b><span>Players</span></div>
+  <div class="res"><b id="r-nodes">0</b><span>Nodes</span></div>
   <span id="shield-badge">🛡️ Protected</span>
   <div id="buildbar"></div>
   <button class="ubtn" id="btn-turret"><span class="nm">🏗️ Turret</span><span class="ct" id="turret-cost"></span></button>
@@ -295,6 +327,42 @@ function doJoin(mapId) {
 }
 document.getElementById("ov-btn").addEventListener("click", () => doJoin(null));   // Quick Play
 
+// ---- World chat (per-map, like the real game's bottom-left feed) -------------
+const CHAT_COLORS = ["#6fd3ff", "#ffd75e", "#ff9a6f", "#c69fff", "#7fe0c3", "#e8b3d8"];
+function chatColor(name) {
+  if (name === username) return "#7fe07f";                       // you = green
+  let h = 0; for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) | 0;
+  return CHAT_COLORS[Math.abs(h) % CHAT_COLORS.length];
+}
+function addChat(msg) {
+  const log = document.getElementById("chatlog");
+  const d = new Date(msg.ts || Date.now());
+  const line = document.createElement("div");
+  const t = document.createElement("span"); t.className = "t";
+  t.textContent = d.getHours() + ":" + String(d.getMinutes()).padStart(2, "0");
+  const n = document.createElement("span"); n.className = "n";
+  n.style.color = chatColor(msg.name); n.textContent = " " + msg.name + ": ";
+  line.appendChild(t); line.appendChild(n);
+  line.appendChild(document.createTextNode(msg.text));
+  log.appendChild(line);
+  while (log.children.length > 40) log.removeChild(log.firstChild);
+  log.scrollTop = log.scrollHeight;
+}
+const chatin = document.getElementById("chatin");
+chatin.addEventListener("keydown", (e) => {
+  e.stopPropagation();
+  if (e.key === "Enter") {
+    const t = chatin.value.trim();
+    if (t && socket) socket.emit("chat", { text: t });
+    chatin.value = ""; chatin.blur();
+  }
+  if (e.key === "Escape") chatin.blur();
+});
+document.getElementById("mmburger").addEventListener("click", () => {
+  const h = document.getElementById("help");
+  h.style.display = h.style.display === "none" ? "block" : "none";
+});
+
 // ---- Socket (connected only after login, carrying the JWT) ------------------
 function connectSocket() {
   socket = io({ auth: { token } });
@@ -309,6 +377,8 @@ function connectSocket() {
   socket.on("serverFull", ({ capacity }) => showAuthPanel(`Server is full (${capacity} players). Try again shortly.`));
   socket.on("online", (n) => { document.getElementById("online-count").textContent = n; });
   socket.on("maps", (list) => { mapsList = list; renderMaps(); });
+  socket.on("chat", addChat);
+  socket.on("chatHistory", (arr) => { document.getElementById("chatlog").innerHTML = ""; (arr || []).forEach(addChat); });
 
   socket.on("waiting", () => {
     document.getElementById("ov-text").textContent =
@@ -319,14 +389,12 @@ function connectSocket() {
     document.getElementById("overlay").classList.add("hidden");
     document.getElementById("hud").style.display = "flex";
     document.getElementById("help").style.display = "block";
-    document.getElementById("team-dot").style.background = "#4c8dff";
-    document.getElementById("team-name").textContent = info.yourName || "You";
-    document.getElementById("opp-name").textContent = "FFA";
-    document.getElementById("map-name").textContent = info.mapId || "—";
+    myMapId = info.mapId || "SC1";
     buildBuildBar();
     document.getElementById("turret-cost").textContent = costStr(BUILDINGS.turret.cost);
     buildTerrain();                                  // build 3D terrain sized to this world
-    document.getElementById("minimap").style.display = "block";
+    document.getElementById("mmwrap").style.display = "flex";
+    document.getElementById("chatbox").style.display = "flex";
     if (info.spawnX != null && camTarget) camTarget.set(info.spawnX * S, 0, info.spawnY * S);
     resetCameraOnStart = true;
   });
@@ -353,7 +421,8 @@ function connectSocket() {
     const b = document.getElementById("ov-btn"); b.disabled = false; b.textContent = "↻ Respawn";
     document.getElementById("hud").style.display = "none";
     document.getElementById("help").style.display = "none";
-    document.getElementById("minimap").style.display = "none";
+    document.getElementById("mmwrap").style.display = "none";
+    document.getElementById("chatbox").style.display = "none";
     myTeam = null; latest = null; selected.clear(); clearScene();
     loadLeaderboard();
   });
@@ -364,7 +433,9 @@ if (token && username) onLoggedIn(); else showAuthPanel();
 
 // ---- Build bar (generated from the server's unit list) ----------------------
 function costStr(c) {
-  const p = []; if (c.steel) p.push(c.steel + "⚙"); if (c.fuel) p.push(c.fuel + "🛢"); if (c.gold) p.push(c.gold + "💰");
+  const p = [];
+  if (c.concrete) p.push(c.concrete + "C"); if (c.steel) p.push(c.steel + "St");
+  if (c.alu) p.push(c.alu + "Al"); if (c.fuel) p.push(c.fuel + "F"); if (c.gold) p.push(c.gold + "G");
   return p.join(" ");
 }
 function buildBuildBar() {
@@ -389,7 +460,8 @@ function doBuild(type) {
   Sfx.ensure();
   const t = UNIT_TYPES[type]; if (!t || !socket) return;
   const r = latest && latest.resources;
-  const ok = r && r.steel >= (t.cost.steel || 0) && r.fuel >= (t.cost.fuel || 0) && r.gold >= (t.cost.gold || 0);
+  const ok = r && r.steel >= (t.cost.steel || 0) && r.fuel >= (t.cost.fuel || 0) && r.gold >= (t.cost.gold || 0)
+               && (r.concrete || 0) >= (t.cost.concrete || 0) && (r.alu || 0) >= (t.cost.alu || 0);
   if (!ok) { Sfx.denied(); return; }
   socket.emit("build", { type }); Sfx.build();
 }
@@ -406,7 +478,8 @@ muteBtn.addEventListener("click", () => {
   muteBtn.querySelector(".nm").textContent = Sfx.isEnabled() ? "🔊" : "🔇";
 });
 addEventListener("keydown", (e) => {
-  if (!myTeam) return;
+  if (!myTeam || typing()) return;
+  if (e.key === "Enter") { document.getElementById("chatin").focus(); e.preventDefault(); return; }
   const keys = Object.keys(UNIT_TYPES);
   const n = parseInt(e.key, 10);
   if (n >= 1 && n <= 9 && keys[n - 1]) doBuild(keys[n - 1]);
@@ -424,6 +497,10 @@ let bulletLines, bulletPos;
 const MAXB = 600;                                 // max tracers drawn per frame
 const effects = [];                               // active explosion effects
 let lastFrame = performance.now();
+let myMapId = null;
+let squadTimer = 0; const squadSprites = [];      // "NAME · 7 TANK" cluster labels
+const floaters = [];                              // rising damage-% sprites
+function typing() { const a = document.activeElement; return !!(a && a.tagName === "INPUT"); }
 let terrainKey = null;                            // "WxH" of the terrain currently built
 const TERRAIN_MARGIN = 3000;                      // how far mountains extend past the arena (world units)
 
@@ -565,10 +642,79 @@ function updateSelInfo() {
   el.style.display = "block";
 }
 
+// Two-line squad label: player name over unit count + type, like "ARYAN13306 / 7 MORS".
+function makeSquadSprite(name, sub, mine) {
+  const cv = document.createElement("canvas"); let c = cv.getContext("2d");
+  c.font = "bold 34px Segoe UI"; const w1 = c.measureText(name).width;
+  c.font = "bold 26px Segoe UI"; const w2 = c.measureText(sub).width;
+  cv.width = Math.ceil(Math.max(w1, w2)) + 26; cv.height = 74;
+  c = cv.getContext("2d"); c.textAlign = "center";
+  c.fillStyle = "rgba(0,0,0,0.42)"; c.fillRect(0, 0, cv.width, cv.height);
+  c.font = "bold 34px Segoe UI"; c.fillStyle = mine ? "#7fe07f" : "#ffb0a8"; c.fillText(name, cv.width / 2, 32);
+  c.font = "bold 26px Segoe UI"; c.fillStyle = "#f0f3f6"; c.fillText(sub, cv.width / 2, 62);
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(cv), depthTest: false, transparent: true }));
+  spr.scale.set(cv.width / 74 * 8, 8, 1);
+  return spr;
+}
+
+// Cluster visible units per player and float one squad label over each group.
+function updateSquads(dt) {
+  squadTimer -= dt; if (squadTimer > 0) return; squadTimer = 0.5;
+  for (const s of squadSprites) scene.remove(s);
+  squadSprites.length = 0;
+  if (!latest || !myTeam) return;
+  const byTeam = new Map();
+  for (const e of latest.entities) {
+    if (e.kind !== "unit") continue;
+    let a = byTeam.get(e.team); if (!a) byTeam.set(e.team, a = []); a.push(e);
+  }
+  for (const [team, arr] of byTeam) {
+    const used = new Array(arr.length).fill(false);
+    for (let i = 0; i < arr.length; i++) {
+      if (used[i]) continue;
+      const stack = [i]; used[i] = true; const members = [];
+      while (stack.length) {
+        const k = stack.pop(); members.push(arr[k]);
+        for (let j = 0; j < arr.length; j++)
+          if (!used[j] && Math.abs(arr[j].x - arr[k].x) < 90 && Math.abs(arr[j].y - arr[k].y) < 90) { used[j] = true; stack.push(j); }
+      }
+      let cx = 0, cy = 0; const cnt = {};
+      for (const m of members) { cx += m.x; cy += m.y; cnt[m.type] = (cnt[m.type] || 0) + 1; }
+      cx /= members.length; cy /= members.length;
+      const dom = Object.entries(cnt).sort((a2, b2) => b2[1] - a2[1])[0][0];
+      const lbl = UNIT_TYPES[dom] ? UNIT_TYPES[dom].label.toUpperCase() : "UNITS";
+      const spr = makeSquadSprite(team, members.length + " " + lbl, team === myTeam);
+      spr.position.set(cx * S, heightAt(cx, cy) + 9.5, cy * S);
+      scene.add(spr); squadSprites.push(spr);
+    }
+  }
+}
+
+// Rising damage-% floaters over structures being hit (like the game's 63% / 77%).
+function spawnFloater(e) {
+  const pct = Math.max(0, Math.round(e.hp / e.maxHp * 100));
+  const spr = makeLabelSprite(pct + "%", "#ffd75e");
+  spr.position.set(e.x * S, heightAt(e.x, e.y) + 11, e.y * S);
+  scene.add(spr);
+  floaters.push({ spr, life: 0 });
+  if (floaters.length > 24) { const old = floaters.shift(); scene.remove(old.spr); }
+}
+function updateFloaters(dt) {
+  for (let i = floaters.length - 1; i >= 0; i--) {
+    const f = floaters[i]; f.life += dt;
+    f.spr.position.y += 4.5 * dt;
+    f.spr.material.opacity = Math.max(0, 1 - f.life / 1.1);
+    if (f.life >= 1.1) { scene.remove(f.spr); floaters.splice(i, 1); }
+  }
+}
+
 // Local radar: plots what we know (nearby entities) relative to the camera centre.
 function drawMinimap() {
   const mc = minimapCtx; if (!mc) return;
-  const W = 176, H = 176;
+  const W = 196, H = 196;
+  // coordinates line like the real game's "SC1 MAP1247 725:805"
+  document.getElementById("mmcoords").textContent =
+    (myMapId || "—") + "  " + Math.round(camTarget.x / S) + ":" + Math.round(camTarget.z / S);
   mc.clearRect(0, 0, W, H);
   mc.fillStyle = "rgba(11,15,20,0.82)"; mc.fillRect(0, 0, W, H);
   if (latest) {
@@ -779,11 +925,36 @@ function buildUnitModel(type, team) {
   } else {
     add(new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), mat(body))).position.y = 1;
   }
+  // swap plain olive hull pieces for generated camo
+  const camo = getCamoTexture();
+  g.traverse(m => {
+    if (m.isMesh && m.material && m.material.color && m.material.color.getHex() === body)
+      m.material = new THREE.MeshStandardMaterial({ map: camo });
+  });
   // small glowing team marker floating above the vehicle (friend/foe at a glance)
   const marker = new THREE.Mesh(new THREE.SphereGeometry(0.55, 8, 6),
     new THREE.MeshStandardMaterial({ color: teamAccent(team), emissive: teamAccent(team), emissiveIntensity: 0.6 }));
   marker.position.y = t.cls === "air" ? 3.5 : 4.4; g.add(marker);
   return g;
+}
+
+// Procedurally generated olive/brown camouflage texture (no external assets).
+let camoTex = null;
+function getCamoTexture() {
+  if (camoTex) return camoTex;
+  const c = document.createElement("canvas"); c.width = c.height = 64;
+  const x = c.getContext("2d");
+  x.fillStyle = "#555b34"; x.fillRect(0, 0, 64, 64);
+  const cols = ["#3a4026", "#6b6f45", "#4a502c", "#5f5a38"];
+  for (let i = 0; i < 30; i++) {
+    x.fillStyle = cols[i % cols.length];
+    x.beginPath();
+    x.ellipse(Math.random() * 64, Math.random() * 64, 5 + Math.random() * 9, 3 + Math.random() * 6, Math.random() * 3, 0, 7);
+    x.fill();
+  }
+  camoTex = new THREE.CanvasTexture(c);
+  camoTex.wrapS = camoTex.wrapT = THREE.RepeatWrapping;
+  return camoTex;
 }
 
 function makeLabelSprite(text, color) {
@@ -950,6 +1121,10 @@ function syncEntities() {
       const rotor = o.group.getObjectByName("ROTOR"); if (rotor) rotor.rotation.y += 0.8;
     }
 
+    // damage % floater when a structure takes a hit
+    if (o.prevHp !== undefined && e.hp < o.prevHp && e.kind !== "unit") spawnFloater(e);
+    o.prevHp = e.hp;
+
     // health bar
     const ratio = Math.max(0, e.hp / e.maxHp);
     o.hpFg.scale.x = ratio; o.hpFg.position.x = -(4 * (1 - ratio)) / 2;
@@ -1055,7 +1230,7 @@ canvas.addEventListener("contextmenu", (e) => {
 
 // camera controls
 const keys = {};
-addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
+addEventListener("keydown", e => { if (!typing()) keys[e.key.toLowerCase()] = true; });
 addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
 canvas.addEventListener("wheel", (e) => {
   e.preventDefault(); camZoom = Math.max(0.45, Math.min(2.4, camZoom + Math.sign(e.deltaY) * 0.12));
@@ -1069,7 +1244,7 @@ function updateCamera() {
   if (keys["s"] || keys["arrowdown"]) camTarget.z += pan;
   camTarget.x = Math.max(0, Math.min(WX(), camTarget.x));
   camTarget.z = Math.max(0, Math.min(WZ(), camTarget.z));
-  camera.position.set(camTarget.x, 128 * camZoom, camTarget.z + 150 * camZoom);   // lower, more isometric
+  camera.position.set(camTarget.x, 165 * camZoom, camTarget.z + 100 * camZoom);   // high isometric like the real game
   camera.lookAt(camTarget.x, 0, camTarget.z);
   if (sun) {                                    // keep shadows around the viewed area
     sun.position.set(camTarget.x + 60, 200, camTarget.z + 30);
@@ -1086,9 +1261,15 @@ function centerOnMyBase() {
 // ================= HUD numbers + main loop ==================================
 function syncHud() {
   if (!latest) return;
-  document.getElementById("r-steel").textContent = Math.floor(latest.resources.steel);
-  document.getElementById("r-fuel").textContent = Math.floor(latest.resources.fuel);
-  document.getElementById("r-gold").textContent = Math.floor(latest.resources.gold);
+  const R = latest.resources, fmt = (v) => Math.floor(v || 0).toLocaleString();
+  document.getElementById("r-concrete").textContent = fmt(R.concrete);
+  document.getElementById("r-steel").textContent = fmt(R.steel);
+  document.getElementById("r-alu").textContent = fmt(R.alu);
+  document.getElementById("r-fuel").textContent = fmt(R.fuel);
+  document.getElementById("r-gold").textContent = fmt(R.gold);
+  document.getElementById("r-mil").textContent = (latest.military || 0) + "/" + (latest.milCap || 200);
+  document.getElementById("r-bases").textContent = latest.basesCount || 0;
+  document.getElementById("r-groups").textContent = latest.groups || 0;
   document.getElementById("r-players").textContent = latest.playersInWorld || 1;
   document.getElementById("r-nodes").textContent = latest.myNodes || 0;
   document.getElementById("shield-badge").style.display = latest.youShielded ? "inline" : "none";
@@ -1103,6 +1284,8 @@ function loop() {
     syncNodes();
     syncHud();
     updateEffects(fdt);
+    updateSquads(fdt);
+    updateFloaters(fdt);
     updateSelInfo();
     if (clouds) {                          // drift clouds slowly, wrap around
       for (const c of clouds.children) { c.position.x += 0.03; if (c.position.x > WX() + 20) c.position.x = -20; }
