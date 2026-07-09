@@ -62,6 +62,8 @@
   #lb-table td:last-child { text-align: right; color: #3fb950; font-variant-numeric: tabular-nums; }
   #lb-table td.lb-empty { text-align: center; color: #6b7684; }
   #hud #vs { color: #8b99a6; } #hud #opp-name { color: #ff7b72; }
+  #shield-badge { color: #7fd6ff; font-size: 12px; display: none;
+    border: 1px solid #2b5a7a; border-radius: 4px; padding: 2px 7px; }
   #help { position: fixed; bottom: 10px; left: 10px; font-size: 12px; color: #8b99a6;
     background: rgba(11,15,20,.75); padding: 8px 12px; border-radius: 6px; line-height: 1.7; z-index: 3; }
   #help b { color: #cdd6e0; }
@@ -112,6 +114,8 @@
   <div class="res">⚙️ <b id="r-steel">0</b></div>
   <div class="res">🛢️ <b id="r-fuel">0</b></div>
   <div class="res">💰 <b id="r-gold">0</b></div>
+  <div class="res">🌍 <b id="r-players">0</b><span>in world</span></div>
+  <span id="shield-badge">🛡️ Protected</span>
   <div id="buildbar"></div>
   <button class="ubtn" id="btn-turret"><span class="nm">🏗️ Turret</span><span class="ct" id="turret-cost"></span></button>
 </div>
@@ -471,6 +475,19 @@ function buildUnitModel(type, team) {
   return g;
 }
 
+function makeLabelSprite(text, color) {
+  const cv = document.createElement("canvas"), c = cv.getContext("2d");
+  c.font = "bold 40px Segoe UI";
+  const w = Math.ceil(c.measureText(text).width) + 24; cv.width = w; cv.height = 56;
+  c.font = "bold 40px Segoe UI"; c.textBaseline = "middle";
+  c.fillStyle = "rgba(0,0,0,0.55)"; c.fillRect(0, 0, w, 56);
+  c.fillStyle = color; c.fillText(text, 12, 30);
+  const tex = new THREE.CanvasTexture(cv);
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
+  spr.scale.set(w / 56 * 7, 7, 1);
+  return spr;
+}
+
 function buildBaseModel(team) {
   const g = new THREE.Group();
   const body = teamColor(team), accent = teamColor(team, true);
@@ -484,6 +501,8 @@ function buildBaseModel(team) {
   pole.position.set(3, 12, -5); g.add(pole);
   const flag = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.4, 0.1), mat(body));
   flag.position.set(4.2, 14, -5); g.add(flag);
+  const label = makeLabelSprite(team, team === myTeam ? "#8fb0ff" : "#ff9a9a");
+  label.position.set(0, 18, 0); g.add(label);
   return g;
 }
 function buildTurretModel(team) {
@@ -560,9 +579,10 @@ function syncEntities() {
     o.hpFg.scale.x = ratio; o.hpFg.position.x = -(4 * (1 - ratio)) / 2;
     o.hpFg.material.color.setHex(ratio > 0.5 ? 0x3fb950 : ratio > 0.25 ? 0xd29922 : 0xf85149);
 
-    // selection highlight
+    // selection (green) / spawn-shield (blue) glow
     const sel = selected.has(e.id);
-    o.group.traverse(m => { if (m.material && m.material.emissive) m.material.emissive.setHex(sel ? 0x2f7d32 : 0x000000); });
+    const emis = sel ? 0x2f7d32 : (e.shield ? 0x1e4b8f : 0x000000);
+    o.group.traverse(m => { if (m.material && m.material.emissive) m.material.emissive.setHex(emis); });
   }
   // remove gone
   for (const [id, o] of entityObjs) {
@@ -689,6 +709,8 @@ function syncHud() {
   document.getElementById("r-steel").textContent = Math.floor(latest.resources.steel);
   document.getElementById("r-fuel").textContent = Math.floor(latest.resources.fuel);
   document.getElementById("r-gold").textContent = Math.floor(latest.resources.gold);
+  document.getElementById("r-players").textContent = latest.playersInWorld || 1;
+  document.getElementById("shield-badge").style.display = latest.youShielded ? "inline" : "none";
 }
 
 function loop() {

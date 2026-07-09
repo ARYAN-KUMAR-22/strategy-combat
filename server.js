@@ -96,6 +96,7 @@ const ROWS = Math.ceil(MAX_PLAYERS / COLS);
 const WORLD = { w: COLS * SLOT, h: ROWS * SLOT };
 const CELL = 220;                                    // spatial-grid cell size
 const VIEW = 1100;                                   // interest radius sent to each client
+const SHIELD_MS = 15000;                             // spawn protection duration (until you attack)
 
 // ---- Shared world state -----------------------------------------------------
 const world = {
@@ -113,6 +114,23 @@ function slotCenter(slot) {
 
 let nextId = 1;
 const newId = () => nextId++;
+
+// Spawn as far as possible from existing players so newcomers aren't dropped into a war.
+function pickSpawnSlot() {
+  if (world.players.size === 0) return freeSlots[(Math.random() * freeSlots.length) | 0];
+  let best = freeSlots[0], bestD = -1;
+  for (const s of freeSlots) {
+    const c = slotCenter(s);
+    let mind = Infinity;
+    for (const p of world.players.values()) {
+      const b = world.entities.get(p.baseId); if (!b) continue;
+      const d = dist(c, b); if (d < mind) mind = d;
+    }
+    if (mind > bestD) { bestD = mind; best = s; }
+  }
+  return best;
+}
+function isShielded(team) { const p = world.players.get(team); return !!(p && p.shieldUntil > Date.now()); }
 
 function makeUnit(type, x, y, team) {
   const t = UNIT_TYPES[type];
@@ -144,13 +162,14 @@ function spawnPlayer(socket) {
     return p;
   }
   if (!freeSlots.length) { socket.emit("serverFull", { capacity: MAX_PLAYERS }); return null; }
-  const slot = freeSlots.shift();
+  const slot = pickSpawnSlot();
+  freeSlots.splice(freeSlots.indexOf(slot), 1);
   const c = slotCenter(slot);
   const base = makeBase(c.x, c.y, username);
   ["warrior", "warrior", "warrior", "archer"].forEach((t, i) =>
     makeUnit(t, c.x + (i % 2 ? 42 : -42), c.y + 55 + ((i / 2) | 0) * 30, username));
   p = { socket, res: { gold: 100, steel: 200, fuel: 150 }, baseId: base.id,
-        viewX: c.x, viewY: c.y, slot };
+        viewX: c.x, viewY: c.y, slot, shieldUntil: Date.now() + SHIELD_MS };
   world.players.set(username, p);
   socket.data.inWorld = true;
   emitStart(socket, username, c);
@@ -221,6 +240,8 @@ function nearestEnemyGrid(grid, e, searchR) {
   return best;
 }
 function fire(from, to, stats) {
+  const ap = world.players.get(from.team);
+  if (ap && ap.shieldUntil > Date.now()) ap.shieldUntil = 0;   // attacking ends spawn protection
   world.bullets.push({ x: from.x, y: from.y, targetId: to.id, dmg: stats.dmg, team: from.team, life: 0.35 });
 }
 
@@ -268,7 +289,7 @@ function step(dt) {
     bl.life -= dt;
     if (bl.life <= 0) {
       const t = world.entities.get(bl.targetId);
-      if (t && t.hp > 0) { t.hp -= bl.dmg; if (t.kind === "base") t.lastHitBy = bl.team; }
+      if (t && t.hp > 0 && !isShielded(t.team)) { t.hp -= bl.dmg; if (t.kind === "base") t.lastHitBy = bl.team; }
     }
   }
   world.bullets = world.bullets.filter(b => b.life > 0);
@@ -322,7 +343,7 @@ function handleCommand(username, unitIds, x, y, targetId) {
 }
 
 // ---- Per-player snapshot (only what's near their view) ----------------------
-function snapshotFor(username, p, grid) {
+function snapshotFor(username, p, grid, shielded) {
   const cx = p.viewX, cy = p.viewY;
   const gcx = (cx / CELL) | 0, gcy = (cy / CELL) | 0, rc = Math.ceil(VIEW / CELL);
   const entities = [];
@@ -332,7 +353,8 @@ function snapshotFor(username, p, grid) {
       for (const e of arr) {
         entities.push({ id: e.id, kind: e.kind, type: e.type || null, team: e.team,
                         x: Math.round(e.x), y: Math.round(e.y), r: e.r,
-                        hp: Math.max(0, Math.round(e.hp)), maxHp: e.maxHp });
+                        hp: Math.max(0, Math.round(e.hp)), maxHp: e.maxHp,
+                        shield: shielded.has(e.team) });
       }
     }
   const bullets = [];
@@ -342,7 +364,8 @@ function snapshotFor(username, p, grid) {
     bullets.push({ x: Math.round(b.x), y: Math.round(b.y),
                    tx: t ? Math.round(t.x) : b.x, ty: t ? Math.round(t.y) : b.y, team: b.team });
   }
-  return { you: username, world: WORLD, resources: p.res, entities, bullets, alive: true };
+  return { you: username, world: WORLD, resources: p.res, entities, bullets, alive: true,
+           playersInWorld: world.players.size, youShielded: shielded.has(username) };
 }
 
 // ---- Socket wiring ----------------------------------------------------------
@@ -393,8 +416,11 @@ const dt = 1 / TICK_HZ;
 setInterval(() => {
   const grid = step(dt);
   if (world.tick % SNAPSHOT_EVERY === 0) {
+    const now = Date.now();
+    const shielded = new Set();
+    for (const [u, pp] of world.players) if (pp.shieldUntil > now) shielded.add(u);
     for (const [username, p] of world.players) {
-      if (p.socket && p.socket.connected) p.socket.emit("state", snapshotFor(username, p, grid));
+      if (p.socket && p.socket.connected) p.socket.emit("state", snapshotFor(username, p, grid, shielded));
     }
   }
 }, 1000 / TICK_HZ);
