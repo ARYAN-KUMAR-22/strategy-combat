@@ -3,56 +3,68 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Strategy Combat — Online 1v1</title>
+<title>Strategy Combat — 3D Online 1v1</title>
 <style>
-  html, body { margin: 0; height: 100%; background: #0d1117; overflow: hidden;
+  html, body { margin: 0; height: 100%; background: #0b0f14; overflow: hidden;
     font-family: "Segoe UI", Tahoma, sans-serif; color: #e6edf3; user-select: none; }
-  #game { display: block; background: #c3ccd6; cursor: crosshair; }
-  #hud { position: fixed; top: 0; left: 0; right: 0; height: 44px; display: flex;
-    align-items: center; gap: 18px; padding: 0 14px; background: linear-gradient(#1c2530,#131a22);
-    border-bottom: 1px solid #2b3846; font-size: 13px; z-index: 3; }
+  #scene { position: fixed; inset: 0; display: block; cursor: crosshair; }
+  #hud { position: fixed; top: 0; left: 0; right: 0; min-height: 44px; display: flex;
+    align-items: center; gap: 14px; padding: 6px 12px; background: linear-gradient(#1c2530,#131a22);
+    border-bottom: 1px solid #2b3846; font-size: 13px; z-index: 3; flex-wrap: wrap; }
   #hud .res b { color: #7fd6ff; font-variant-numeric: tabular-nums; }
   #hud .res span { color: #8b99a6; font-size: 11px; margin-left: 3px; }
   #hud .spacer { flex: 1; }
-  #hud button { background: #21262d; color: #e6edf3; border: 1px solid #30363d;
-    padding: 6px 10px; border-radius: 5px; font-size: 12px; cursor: pointer; }
-  #hud button:hover { border-color: #58a6ff; }
-  #hud button.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+  #buildbar { display: flex; gap: 5px; flex-wrap: wrap; }
+  #buildbar .grp { display: flex; gap: 5px; align-items: stretch; }
+  #buildbar .era { font-size: 9px; color: #6b7684; align-self: center; text-transform: uppercase;
+    writing-mode: initial; padding: 0 2px; letter-spacing: .5px; }
+  .ubtn { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 5px;
+    padding: 3px 7px; font-size: 11px; cursor: pointer; line-height: 1.25; text-align: center; }
+  .ubtn:hover { border-color: #58a6ff; }
+  .ubtn .nm { font-weight: 600; display: block; }
+  .ubtn .ct { font-size: 9px; color: #8b99a6; }
+  .ubtn.active { background: #1f6feb; border-color: #1f6feb; }
   #overlay { position: fixed; inset: 0; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; gap: 18px; z-index: 10;
-    background: radial-gradient(circle at 50% 40%, #16202b, #0d1117); text-align: center; }
-  #overlay h1 { margin: 0; font-size: 34px; letter-spacing: 1px; }
-  #overlay p { margin: 0; color: #8b99a6; max-width: 460px; line-height: 1.6; }
-  #overlay button { background: #1f6feb; color: #fff; border: 0; padding: 12px 26px;
-    border-radius: 7px; font-size: 15px; font-weight: 600; cursor: pointer; }
-  #overlay button:hover { background: #388bfd; }
-  #overlay.hidden { display: none; }
+    align-items: center; justify-content: center; gap: 16px; z-index: 10;
+    background: radial-gradient(circle at 50% 35%, #16202b, #0b0f14); text-align: center; }
+  #overlay h1 { margin: 0; font-size: 32px; letter-spacing: 1px; }
+  #overlay p { margin: 0; color: #8b99a6; max-width: 470px; line-height: 1.6; }
   #ov-name { background: #0d1117; border: 1px solid #30363d; color: #e6edf3;
     padding: 11px 14px; border-radius: 7px; font-size: 15px; width: 220px; text-align: center; }
   #ov-name:focus { outline: none; border-color: #58a6ff; }
-  #leaderboard { margin-top: 10px; min-width: 300px; background: rgba(20,26,34,.6);
-    border: 1px solid #2b3846; border-radius: 8px; padding: 12px 18px; }
-  #leaderboard h3 { margin: 0 0 8px; font-size: 14px; color: #cdd6e0; }
+  #overlay button { background: #1f6feb; color: #fff; border: 0; padding: 12px 26px;
+    border-radius: 7px; font-size: 15px; font-weight: 600; cursor: pointer; }
+  #overlay button:hover { background: #388bfd; }
+  #overlay button:disabled { background: #30363d; color: #6b7684; }
+  #overlay.hidden { display: none; }
+  #leaderboard { margin-top: 6px; min-width: 300px; background: rgba(20,26,34,.6);
+    border: 1px solid #2b3846; border-radius: 8px; padding: 10px 18px; }
+  #leaderboard h3 { margin: 0 0 6px; font-size: 14px; color: #cdd6e0; }
   #lb-table { width: 100%; border-collapse: collapse; font-size: 13px; }
   #lb-table td { padding: 3px 6px; color: #adbac7; }
   #lb-table td:first-child { text-align: left; }
   #lb-table td:last-child { text-align: right; color: #3fb950; font-variant-numeric: tabular-nums; }
   #lb-table td.lb-empty { text-align: center; color: #6b7684; }
-  #hud #vs { color: #8b99a6; }
-  #hud #opp-name { color: #ff7b72; }
+  #hud #vs { color: #8b99a6; } #hud #opp-name { color: #ff7b72; }
   #help { position: fixed; bottom: 10px; left: 10px; font-size: 12px; color: #8b99a6;
-    background: rgba(20,26,34,.72); padding: 8px 12px; border-radius: 6px; line-height: 1.7; z-index: 3; }
+    background: rgba(11,15,20,.75); padding: 8px 12px; border-radius: 6px; line-height: 1.7; z-index: 3; }
   #help b { color: #cdd6e0; }
-  .dot { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:4px; }
+  #selbox { position: fixed; border: 1.5px solid #3fb950; background: rgba(63,185,80,.12);
+    pointer-events: none; z-index: 2; display: none; }
+  #err { position: fixed; bottom: 10px; right: 10px; z-index: 20; color: #ff7b72;
+    font-size: 12px; background: rgba(11,15,20,.9); padding: 6px 10px; border-radius: 6px; display: none; }
 </style>
 </head>
 <body>
 
+<canvas id="scene"></canvas>
+<div id="selbox"></div>
+
 <div id="overlay">
-  <h1>⚔️ Strategy Combat — Online 1v1</h1>
-  <p id="ov-text">Enter a name, then find an opponent. Open this page in a second tab
-     (or send it to a friend) and click Find Match there too —
-     you'll be matched together and fight in real time.</p>
+  <h1>⚔️ Strategy Combat — 3D Online 1v1</h1>
+  <p id="ov-text">Command an army from ancient warriors to modern tanks and helicopters
+     on a 3D battlefield. Enter a name and find an opponent — open this page in a second
+     tab or send it to a friend to fight in real time.</p>
   <input id="ov-name" maxlength="16" placeholder="Your name" autocomplete="off">
   <button id="ov-btn">🔍 Find Match</button>
   <div id="leaderboard">
@@ -63,285 +75,502 @@
 
 <div id="hud" style="display:none">
   <div class="res"><span id="team-dot" class="dot"></span><b id="team-name">—</b><span id="vs"> vs </span><b id="opp-name">—</b></div>
-  <div class="res">⚙️ <b id="r-steel">0</b><span>Steel</span></div>
-  <div class="res">🛢️ <b id="r-fuel">0</b><span>Fuel</span></div>
-  <div class="res">💰 <b id="r-gold">0</b><span>Gold</span></div>
-  <div class="spacer"></div>
-  <button data-build="scout">Scout (20⚙️/15🛢️)</button>
-  <button data-build="tank">Tank (50⚙️/30🛢️)</button>
-  <button data-build="artillery">Artillery (80⚙️/55🛢️)</button>
-  <button id="btn-turret" data-place="turret">🏗️ Turret (120⚙️/40🛢️)</button>
+  <div class="res">⚙️ <b id="r-steel">0</b></div>
+  <div class="res">🛢️ <b id="r-fuel">0</b></div>
+  <div class="res">💰 <b id="r-gold">0</b></div>
+  <div id="buildbar"></div>
+  <button class="ubtn" id="btn-turret"><span class="nm">🏗️ Turret</span><span class="ct" id="turret-cost"></span></button>
 </div>
 
 <div id="help" style="display:none">
-  <b>Left-drag</b> select · <b>Right-click</b> move / attack · <b>1</b>/<b>2</b>/<b>3</b> build scout/tank/artillery<br>
-  <b>Turret</b> button then click near your base to place · Destroy the enemy HQ to win.
+  <b>Left-drag</b> select · <b>Right-click</b> move / attack · <b>Wheel</b> zoom · <b>WASD</b> pan<br>
+  Build troops from the top bar (ancient → modern). Destroy the enemy HQ to win.
 </div>
 
-<canvas id="game"></canvas>
+<div id="err"></div>
 
 <script src="/socket.io/socket.io.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script>
 "use strict";
 const socket = io();
+const errEl = document.getElementById("err");
+function showErr(m) { errEl.style.display = "block"; errEl.textContent = m; }
 
-const canvas = document.getElementById("game");
-const ctx = canvas.getContext("2d");
-function resize() { canvas.width = innerWidth; canvas.height = innerHeight - 44; canvas.style.marginTop = "44px"; }
-addEventListener("resize", resize); resize();
+// ================= Networking / lobby =======================================
+let UNIT_TYPES = {}, BUILDINGS = {}, WORLD = { w: 2000, h: 1400 };
+let myTeam = null, latest = null;
+const selected = new Set();
+let placing = null;
 
-let WORLD = { w: 2000, h: 1400 };
-let UNIT_TYPES = {}, BUILDINGS = {};
-const camera = { x: 0, y: 0 };
-let myTeam = null;
-let latest = null;            // most recent server snapshot
-let placingBuilding = null;   // e.g. "turret" when in placement mode
-const selected = new Set();   // ids of my selected units
-
-function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
-function s2w(sx, sy) { return { x: sx + camera.x, y: sy + camera.y }; }
-function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
-
-// ---- Networking events ------------------------------------------------------
-// restore last-used name
 document.getElementById("ov-name").value = localStorage.getItem("sc-name") || "";
-
 document.getElementById("ov-btn").addEventListener("click", () => {
   const name = document.getElementById("ov-name").value.trim();
   localStorage.setItem("sc-name", name);
   socket.emit("findMatch", { name });
   document.getElementById("ov-text").textContent = "Searching for an opponent…";
-  document.getElementById("ov-btn").disabled = true;
-  document.getElementById("ov-btn").textContent = "Waiting…";
+  const b = document.getElementById("ov-btn"); b.disabled = true; b.textContent = "Waiting…";
 });
-
-// load the leaderboard onto the start screen
 function loadLeaderboard() {
   fetch("/leaderboard").then(r => r.json()).then(rows => {
     const body = document.querySelector("#lb-table tbody");
     if (!rows.length) { body.innerHTML = '<tr><td class="lb-empty">No games played yet</td></tr>'; return; }
     body.innerHTML = rows.map((r, i) =>
-      `<tr><td>${i + 1}. ${escapeHtml(r.name)}</td><td>${r.wins}W / ${r.losses}L</td></tr>`).join("");
+      `<tr><td>${i + 1}. ${esc(r.name)}</td><td>${r.wins}W / ${r.losses}L</td></tr>`).join("");
   }).catch(() => {});
 }
-function escapeHtml(s) { return s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 loadLeaderboard();
 
 socket.on("waiting", () => {
   document.getElementById("ov-text").textContent =
     "Waiting for a second player. Open this same URL in another tab and click Find Match.";
 });
-
 socket.on("matchStart", (info) => {
-  myTeam = info.yourTeam; WORLD = info.world;
-  UNIT_TYPES = info.unitTypes; BUILDINGS = info.buildings;
+  myTeam = info.yourTeam; WORLD = info.world; UNIT_TYPES = info.unitTypes; BUILDINGS = info.buildings;
   document.getElementById("overlay").classList.add("hidden");
   document.getElementById("hud").style.display = "flex";
   document.getElementById("help").style.display = "block";
-  const dot = document.getElementById("team-dot");
+  document.getElementById("team-dot").style.background = "#4c8dff";
   document.getElementById("team-name").textContent = info.yourName || "You";
   document.getElementById("opp-name").textContent = info.opponentName || "Enemy";
-  dot.style.background = "#388bfd";
-  // center camera on my base once the first snapshot arrives (handled in render)
-  camera.centered = false;
+  buildBuildBar();
+  document.getElementById("turret-cost").textContent = costStr(BUILDINGS.turret.cost);
+  resetCameraOnStart = true;
 });
-
 socket.on("state", (snap) => { latest = snap; });
-
 socket.on("gameOver", ({ winner, reason, winnerName }) => {
   const won = winner === myTeam;
-  const ov = document.getElementById("overlay");
-  ov.classList.remove("hidden");
+  const ov = document.getElementById("overlay"); ov.classList.remove("hidden");
   ov.querySelector("h1").textContent = won ? "🏆 VICTORY" : "💀 DEFEAT";
   document.getElementById("ov-text").textContent =
     (winnerName ? winnerName + " wins. " : "") +
     (won ? "You destroyed the enemy HQ. " : "Your HQ was destroyed. ") + "(" + reason + ")";
-  const btn = document.getElementById("ov-btn");
-  btn.disabled = false; btn.textContent = "🔍 Find New Match";
+  const b = document.getElementById("ov-btn"); b.disabled = false; b.textContent = "🔍 Find New Match";
   document.getElementById("hud").style.display = "none";
   document.getElementById("help").style.display = "none";
-  myTeam = null; latest = null; selected.clear();
+  myTeam = null; latest = null; selected.clear(); clearScene();
   loadLeaderboard();
 });
 
-// ---- Build / place buttons --------------------------------------------------
-document.querySelectorAll("#hud [data-build]").forEach(btn => {
-  btn.addEventListener("click", () => socket.emit("build", { type: btn.dataset.build }));
-});
+// ---- Build bar (generated from the server's unit list) ----------------------
+function costStr(c) {
+  const p = []; if (c.steel) p.push(c.steel + "⚙"); if (c.fuel) p.push(c.fuel + "🛢"); if (c.gold) p.push(c.gold + "💰");
+  return p.join(" ");
+}
+function buildBuildBar() {
+  const bar = document.getElementById("buildbar"); bar.innerHTML = "";
+  const entries = Object.entries(UNIT_TYPES);
+  let curEra = null, grp = null;
+  entries.forEach(([key, t], idx) => {
+    if (t.era !== curEra) {
+      curEra = t.era;
+      grp = document.createElement("div"); grp.className = "grp";
+      const lbl = document.createElement("span"); lbl.className = "era"; lbl.textContent = t.era;
+      grp.appendChild(lbl); bar.appendChild(grp);
+    }
+    const btn = document.createElement("div"); btn.className = "ubtn";
+    btn.innerHTML = `<span class="nm">${t.label}${idx < 9 ? " <small style='color:#6b7684'>[" + (idx + 1) + "]</small>" : ""}</span><span class="ct">${costStr(t.cost)}</span>`;
+    btn.title = `${t.era} ${t.cls} · HP ${t.hp} · DMG ${t.dmg} · RNG ${t.range}`;
+    btn.addEventListener("click", () => socket.emit("build", { type: key }));
+    grp.appendChild(btn);
+  });
+}
+document.querySelectorAll("[data-none]"); // noop
 const turretBtn = document.getElementById("btn-turret");
 turretBtn.addEventListener("click", () => {
-  placingBuilding = placingBuilding === "turret" ? null : "turret";
-  turretBtn.classList.toggle("active", !!placingBuilding);
+  placing = placing === "turret" ? null : "turret";
+  turretBtn.classList.toggle("active", !!placing);
 });
-
 addEventListener("keydown", (e) => {
-  if (e.key === "1") socket.emit("build", { type: "scout" });
-  if (e.key === "2") socket.emit("build", { type: "tank" });
-  if (e.key === "3") socket.emit("build", { type: "artillery" });
-  if (e.key === "Escape") { placingBuilding = null; turretBtn.classList.remove("active"); }
+  if (!myTeam) return;
+  const keys = Object.keys(UNIT_TYPES);
+  const n = parseInt(e.key, 10);
+  if (n >= 1 && n <= 9 && keys[n - 1]) socket.emit("build", { type: keys[n - 1] });
+  if (e.key === "Escape") { placing = null; turretBtn.classList.remove("active"); }
 });
 
-// ---- Mouse: select + command ------------------------------------------------
+// ================= 3D scene =================================================
+const S = 0.12;                                  // world units -> scene units
+const WX = () => WORLD.w * S, WZ = () => WORLD.h * S;
+const canvas = document.getElementById("scene");
+let renderer, scene, camera, ground, raycaster, ndc;
+let camTarget, camZoom = 1, resetCameraOnStart = false;
+const entityObjs = new Map();                    // id -> { group, pick, hpFg, kind, team, type }
+let pickList = [];                               // pick proxies for raycasting
+
+function initThree() {
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.shadowMap.enabled = true;
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x8fb3d9);
+  scene.fog = new THREE.Fog(0x8fb3d9, 180, 420);
+
+  camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.5, 1000);
+  camTarget = new THREE.Vector3(120, 0, 84);
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x5a6b3a, 0.85));
+  const sun = new THREE.DirectionalLight(0xffffff, 0.75);
+  sun.position.set(80, 160, 40); sun.castShadow = true;
+  sun.shadow.mapSize.set(1024, 1024);
+  sun.shadow.camera.left = -260; sun.shadow.camera.right = 260;
+  sun.shadow.camera.top = 260; sun.shadow.camera.bottom = -260;
+  sun.shadow.camera.far = 500;
+  scene.add(sun);
+
+  raycaster = new THREE.Raycaster();
+  ndc = new THREE.Vector2();
+
+  window.addEventListener("resize", () => {
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+  });
+}
+
+function buildGround() {
+  // large grass field
+  const g = new THREE.Mesh(
+    new THREE.PlaneGeometry(600, 600),
+    new THREE.MeshStandardMaterial({ color: 0x6f8f4e }));
+  g.rotation.x = -Math.PI / 2; g.position.set(WX() / 2, -0.01, WZ() / 2);
+  g.receiveShadow = true; scene.add(g);
+
+  // the playfield itself, slightly different tone
+  ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(WX(), WZ()),
+    new THREE.MeshStandardMaterial({ color: 0x7ba055 }));
+  ground.rotation.x = -Math.PI / 2; ground.position.set(WX() / 2, 0, WZ() / 2);
+  ground.receiveShadow = true; scene.add(ground);
+  ground.name = "GROUND";
+
+  // grid lines for readability
+  const grid = new THREE.GridHelper(Math.max(WX(), WZ()), 24, 0x3a4a2a, 0x3a4a2a);
+  grid.position.set(WX() / 2, 0.02, WZ() / 2);
+  grid.material.opacity = 0.25; grid.material.transparent = true; scene.add(grid);
+
+  // scenery: trees, rocks, a river band — seeded so it's stable
+  let seed = 1234;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+  const scenery = new THREE.Group(); scene.add(scenery);
+  for (let i = 0; i < 120; i++) {
+    const x = rnd() * WX(), z = rnd() * WZ();
+    // keep the central diagonal lane clearer
+    if (Math.abs((x / WX()) - (z / WZ())) < 0.12 && rnd() < 0.7) continue;
+    if (rnd() < 0.72) scenery.add(tree(x, z, rnd));
+    else scenery.add(rock(x, z, rnd));
+  }
+}
+function tree(x, z, rnd) {
+  const g = new THREE.Group();
+  const h = 2.4 + rnd() * 2.2;
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.35, h * 0.5, 6),
+    new THREE.MeshStandardMaterial({ color: 0x6b4a2b }));
+  trunk.position.y = h * 0.25; trunk.castShadow = true;
+  const leaves = new THREE.Mesh(new THREE.ConeGeometry(1.1 + rnd() * 0.6, h, 7),
+    new THREE.MeshStandardMaterial({ color: 0x2f6b32 }));
+  leaves.position.y = h * 0.7; leaves.castShadow = true;
+  g.add(trunk, leaves); g.position.set(x, 0, z); return g;
+}
+function rock(x, z, rnd) {
+  const s = 0.6 + rnd() * 1.1;
+  const m = new THREE.Mesh(new THREE.DodecahedronGeometry(s),
+    new THREE.MeshStandardMaterial({ color: 0x8a8f96, flatShading: true }));
+  m.position.set(x, s * 0.4, z); m.castShadow = true; m.rotation.set(rnd() * 3, rnd() * 3, rnd() * 3); return m;
+}
+
+// ---- Model factory by class -------------------------------------------------
+function teamColor(team, dark) {
+  if (team === myTeam) return dark ? 0x1d4ed8 : 0x4c8dff;   // blue = you
+  return dark ? 0x991b1b : 0xef4444;                        // red = enemy
+}
+function mat(c) { return new THREE.MeshStandardMaterial({ color: c }); }
+
+function buildUnitModel(type, team) {
+  const t = UNIT_TYPES[type] || { cls: "melee" };
+  const body = teamColor(team), accent = teamColor(team, true);
+  const g = new THREE.Group();
+  const add = (mesh) => { mesh.castShadow = true; g.add(mesh); return mesh; };
+
+  if (t.cls === "melee" || t.cls === "ranged") {                 // foot soldier
+    add(new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.9, 2.4, 8), mat(body))).position.y = 1.2;
+    add(new THREE.Mesh(new THREE.SphereGeometry(0.55, 10, 8), mat(0xf1d3b0))).position.y = 2.7;
+    const weap = add(new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, t.cls === "ranged" ? 2.6 : 2.0, 5), mat(0x5a4632)));
+    weap.position.set(0.7, 1.9, 0); weap.rotation.z = t.cls === "ranged" ? 0.25 : -0.5;
+  } else if (t.cls === "cavalry") {                              // knight on horse
+    add(new THREE.Mesh(new THREE.BoxGeometry(3.2, 1.4, 1.2), mat(0x6b4a2b))).position.y = 1.6; // horse
+    add(new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.8), mat(0x6b4a2b))).position.set(1.6, 2.2, 0);
+    add(new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.6, 2, 8), mat(body))).position.set(-0.3, 3.1, 0);
+    add(new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 3, 5), mat(0xcfd8e3))).position.set(-0.3, 3.6, 0.4);
+  } else if (t.cls === "siege") {                                // catapult / cannon / artillery
+    add(new THREE.Mesh(new THREE.BoxGeometry(3.4, 1.0, 2.4), mat(accent))).position.y = 0.7;
+    const wheelG = new THREE.CylinderGeometry(0.8, 0.8, 0.35, 12);
+    [[-1.4, 1.1], [1.4, 1.1], [-1.4, -1.1], [1.4, -1.1]].forEach(([wx, wz]) => {
+      const w = add(new THREE.Mesh(wheelG, mat(0x2a2a2a))); w.rotation.x = Math.PI / 2; w.position.set(wx, 0.7, wz);
+    });
+    const barrel = add(new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.55, 3.6, 10), mat(body)));
+    barrel.position.set(0.4, 1.9, 0); barrel.rotation.z = -0.9;
+  } else if (t.cls === "armored") {                              // tank
+    add(new THREE.Mesh(new THREE.BoxGeometry(4.2, 1.2, 2.6), mat(accent))).position.y = 0.8;
+    add(new THREE.Mesh(new THREE.BoxGeometry(2.6, 1.0, 2.0), mat(body))).position.y = 1.8;
+    const barrel = add(new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 3.4, 8), mat(body)));
+    barrel.position.set(2.0, 1.9, 0); barrel.rotation.z = Math.PI / 2;
+    [[-1.7, 1.4], [1.7, 1.4], [-1.7, -1.4], [1.7, -1.4], [0, 1.4], [0, -1.4]].forEach(([wx, wz]) => {
+      const w = add(new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.5, 10), mat(0x1c1c1c)));
+      w.rotation.x = Math.PI / 2; w.position.set(wx, 0.55, wz);
+    });
+  } else if (t.cls === "air") {                                  // helicopter (drawn elevated)
+    add(new THREE.Mesh(new THREE.SphereGeometry(1.3, 12, 10), mat(body))).position.y = 0;
+    const tail = add(new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.4, 3.4, 8), mat(accent)));
+    tail.position.set(-2.0, 0.2, 0); tail.rotation.z = Math.PI / 2;
+    const rotor = add(new THREE.Mesh(new THREE.BoxGeometry(6, 0.12, 0.5), mat(0x222222)));
+    rotor.position.y = 1.4; rotor.name = "ROTOR";
+    add(new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.7, 0.12), mat(0x222222))).position.set(-3.4, 0.9, 0);
+    [[-1, -1.2], [1, -1.2], [-1, 1.2], [1, 1.2]].forEach(([sx, sz]) => {   // skids
+      add(new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.2, 5), mat(0x333333))).position.set(sx, -1.2, sz);
+    });
+  } else {
+    add(new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), mat(body))).position.y = 1;
+  }
+  return g;
+}
+
+function buildBaseModel(team) {
+  const g = new THREE.Group();
+  const body = teamColor(team), accent = teamColor(team, true);
+  const dims = [[6, 7, 6, 0, 0], [4, 5, 4, 5.5, 2], [4, 4.5, 4, -5, -2.5], [3.5, 9, 3.5, 3, -5]];
+  dims.forEach(([w, h, d, ox, oz], i) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat(i % 2 ? accent : body));
+    m.position.set(ox, h / 2, oz); m.castShadow = true; g.add(m);
+  });
+  // flag pole
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 6, 6), mat(0xcfd8e3));
+  pole.position.set(3, 12, -5); g.add(pole);
+  const flag = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.4, 0.1), mat(body));
+  flag.position.set(4.2, 14, -5); g.add(flag);
+  return g;
+}
+function buildTurretModel(team) {
+  const g = new THREE.Group();
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 2.2, 2.4, 10), mat(teamColor(team, true)));
+  base.position.y = 1.2; base.castShadow = true; g.add(base);
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(1.4, 12, 8), mat(teamColor(team)));
+  dome.position.y = 2.6; dome.castShadow = true; g.add(dome);
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 3, 8), mat(0x333));
+  barrel.position.set(1.4, 2.6, 0); barrel.rotation.z = Math.PI / 2; g.add(barrel);
+  return g;
+}
+
+// ---- Health bar (billboard) -------------------------------------------------
+function makeHpBar() {
+  const grp = new THREE.Group();
+  const bg = new THREE.Mesh(new THREE.PlaneGeometry(4, 0.5),
+    new THREE.MeshBasicMaterial({ color: 0x000000, depthTest: false }));
+  const fg = new THREE.Mesh(new THREE.PlaneGeometry(4, 0.5),
+    new THREE.MeshBasicMaterial({ color: 0x3fb950, depthTest: false }));
+  fg.position.z = 0.01; bg.renderOrder = 998; fg.renderOrder = 999;
+  grp.add(bg, fg); return { grp, fg };
+}
+
+// ---- Pick proxy (invisible box for raycasting) ------------------------------
+function makePick(id) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(5, 6, 5),
+    new THREE.MeshBasicMaterial({ visible: false }));
+  m.userData.id = id; return m;
+}
+
+function clearScene() {
+  for (const o of entityObjs.values()) { scene.remove(o.group); scene.remove(o.pick); }
+  entityObjs.clear(); pickList = [];
+}
+
+// ---- Sync meshes to the latest snapshot -------------------------------------
+function syncEntities() {
+  if (!latest) return;
+  const seen = new Set();
+  for (const e of latest.entities) {
+    seen.add(e.id);
+    let o = entityObjs.get(e.id);
+    if (!o) {
+      let group;
+      if (e.kind === "base") group = buildBaseModel(e.team);
+      else if (e.kind === "building") group = buildTurretModel(e.team);
+      else group = buildUnitModel(e.type, e.team);
+      scene.add(group);
+      const pick = makePick(e.id); scene.add(pick); pickList.push(pick);
+      const hp = makeHpBar(); group.add(hp.grp);
+      o = { group, pick, hpFg: hp.fg, hpGrp: hp.grp, kind: e.kind, team: e.team, type: e.type,
+            hbY: e.kind === "unit" ? 5 : 12 };
+      hp.grp.position.y = o.hbY;
+      entityObjs.set(e.id, o);
+    }
+    const flying = e.kind === "unit" && UNIT_TYPES[e.type] && UNIT_TYPES[e.type].flying;
+    const tx = e.x * S, tz = e.y * S, ty = flying ? 7 : 0;
+    // smooth toward target position
+    o.group.position.x += (tx - o.group.position.x) * 0.35;
+    o.group.position.z += (tz - o.group.position.z) * 0.35;
+    o.group.position.y += (ty - o.group.position.y) * 0.2;
+    o.pick.position.set(o.group.position.x, ty + 3, o.group.position.z);
+
+    // face movement direction (units only)
+    if (e.kind === "unit") {
+      const dx = tx - o.group.position.x, dz = tz - o.group.position.z;
+      if (Math.abs(dx) + Math.abs(dz) > 0.02) o.group.rotation.y = Math.atan2(dx, dz);
+      const rotor = o.group.getObjectByName("ROTOR"); if (rotor) rotor.rotation.y += 0.8;
+    }
+
+    // health bar
+    const ratio = Math.max(0, e.hp / e.maxHp);
+    o.hpFg.scale.x = ratio; o.hpFg.position.x = -(4 * (1 - ratio)) / 2;
+    o.hpFg.material.color.setHex(ratio > 0.5 ? 0x3fb950 : ratio > 0.25 ? 0xd29922 : 0xf85149);
+
+    // selection highlight
+    const sel = selected.has(e.id);
+    o.group.traverse(m => { if (m.material && m.material.emissive) m.material.emissive.setHex(sel ? 0x2f7d32 : 0x000000); });
+  }
+  // remove gone
+  for (const [id, o] of entityObjs) {
+    if (!seen.has(id)) {
+      scene.remove(o.group); scene.remove(o.pick);
+      pickList = pickList.filter(p => p.userData.id !== id);
+      entityObjs.delete(id);
+    }
+  }
+}
+
+// ================= Input ====================================================
+function setNDC(clientX, clientY) {
+  const r = renderer.domElement.getBoundingClientRect();
+  ndc.x = ((clientX - r.left) / r.width) * 2 - 1;
+  ndc.y = -((clientY - r.top) / r.height) * 2 + 1;
+}
+function groundPoint(clientX, clientY) {
+  setNDC(clientX, clientY); raycaster.setFromCamera(ndc, camera);
+  const hit = raycaster.intersectObject(ground)[0];
+  return hit ? { x: hit.point.x / S, y: hit.point.z / S } : null;
+}
+function pickEntity(clientX, clientY) {
+  setNDC(clientX, clientY); raycaster.setFromCamera(ndc, camera);
+  const hit = raycaster.intersectObjects(pickList)[0];
+  return hit ? hit.object.userData.id : null;
+}
+
 let drag = null;
+const selbox = document.getElementById("selbox");
 canvas.addEventListener("mousedown", (e) => {
   if (e.button === 0) {
-    if (placingBuilding) {           // placement click, not a drag
-      const w = s2w(e.offsetX, e.offsetY);
-      socket.emit("placeBuilding", { type: placingBuilding, x: w.x, y: w.y });
-      placingBuilding = null; turretBtn.classList.remove("active");
-      return;
+    if (placing) {
+      const p = groundPoint(e.clientX, e.clientY);
+      if (p) socket.emit("placeBuilding", { type: placing, x: p.x, y: p.y });
+      placing = null; turretBtn.classList.remove("active"); return;
     }
-    drag = { x0: e.offsetX, y0: e.offsetY, x1: e.offsetX, y1: e.offsetY };
+    drag = { x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY, moved: false };
   }
 });
-canvas.addEventListener("mousemove", (e) => { if (drag) { drag.x1 = e.offsetX; drag.y1 = e.offsetY; } });
-addEventListener("mouseup", (e) => {
-  if (e.button !== 0 || !drag || !latest) { drag = null; return; }
-  const a = s2w(Math.min(drag.x0, drag.x1), Math.min(drag.y0, drag.y1));
-  const b = s2w(Math.max(drag.x0, drag.x1), Math.max(drag.y0, drag.y1));
-  const isClick = Math.hypot(drag.x1 - drag.x0, drag.y1 - drag.y0) < 5;
-  selected.clear();
-  for (const e2 of latest.entities) {
-    if (e2.kind !== "unit" || e2.team !== myTeam) continue;
-    if (isClick) { if (dist(e2, s2w(drag.x1, drag.y1)) < e2.r + 6) selected.add(e2.id); }
-    else if (e2.x >= a.x && e2.x <= b.x && e2.y >= a.y && e2.y <= b.y) selected.add(e2.id);
+window.addEventListener("mousemove", (e) => {
+  if (!drag) return;
+  drag.x1 = e.clientX; drag.y1 = e.clientY;
+  if (Math.hypot(drag.x1 - drag.x0, drag.y1 - drag.y0) > 4) drag.moved = true;
+  if (drag.moved) {
+    selbox.style.display = "block";
+    selbox.style.left = Math.min(drag.x0, drag.x1) + "px";
+    selbox.style.top = Math.min(drag.y0, drag.y1) + "px";
+    selbox.style.width = Math.abs(drag.x1 - drag.x0) + "px";
+    selbox.style.height = Math.abs(drag.y1 - drag.y0) + "px";
+  }
+});
+window.addEventListener("mouseup", (e) => {
+  if (e.button !== 0 || !drag) { drag = null; return; }
+  selbox.style.display = "none";
+  if (!latest) { drag = null; return; }
+  if (!drag.moved) {                          // click select
+    const id = pickEntity(drag.x1, drag.y1);
+    selected.clear();
+    if (id != null) {
+      const ent = latest.entities.find(x => x.id === id);
+      if (ent && ent.kind === "unit" && ent.team === myTeam) selected.add(id);
+    }
+  } else {                                    // box select (project unit positions)
+    const xmin = Math.min(drag.x0, drag.x1), xmax = Math.max(drag.x0, drag.x1);
+    const ymin = Math.min(drag.y0, drag.y1), ymax = Math.max(drag.y0, drag.y1);
+    const r = renderer.domElement.getBoundingClientRect();
+    selected.clear();
+    for (const ent of latest.entities) {
+      if (ent.kind !== "unit" || ent.team !== myTeam) continue;
+      const o = entityObjs.get(ent.id); if (!o) continue;
+      const v = o.group.position.clone(); v.y += 2; v.project(camera);
+      const sx = r.left + (v.x * 0.5 + 0.5) * r.width;
+      const sy = r.top + (-v.y * 0.5 + 0.5) * r.height;
+      if (sx >= xmin && sx <= xmax && sy >= ymin && sy <= ymax) selected.add(ent.id);
+    }
   }
   drag = null;
 });
 canvas.addEventListener("contextmenu", (e) => {
   e.preventDefault();
   if (!latest || selected.size === 0) return;
-  const w = s2w(e.offsetX, e.offsetY);
-  let targetId = null;
-  for (const en of latest.entities) {
-    if (en.team === myTeam) continue;
-    if (dist(en, w) < en.r + 8) { targetId = en.id; break; }
+  const targetId = pickEntity(e.clientX, e.clientY);
+  let attack = null;
+  if (targetId != null) {
+    const ent = latest.entities.find(x => x.id === targetId);
+    if (ent && ent.team !== myTeam) attack = targetId;
   }
-  socket.emit("command", { unitIds: [...selected], x: w.x, y: w.y, targetId });
+  const p = groundPoint(e.clientX, e.clientY);
+  const dest = p || (attack != null ? latest.entities.find(x => x.id === attack) : null);
+  if (!dest) return;
+  socket.emit("command", { unitIds: [...selected], x: dest.x, y: dest.y, targetId: attack });
 });
 
-// camera pan with WASD / arrows
+// camera controls
 const keys = {};
 addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
 addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
+canvas.addEventListener("wheel", (e) => {
+  e.preventDefault(); camZoom = Math.max(0.45, Math.min(2.4, camZoom + Math.sign(e.deltaY) * 0.12));
+}, { passive: false });
 
-// ---- Rendering --------------------------------------------------------------
-function hpBar(sx, sy, w, ratio) {
-  ctx.fillStyle = "rgba(0,0,0,.5)"; ctx.fillRect(sx - w/2, sy, w, 4);
-  ctx.fillStyle = ratio > .5 ? "#3fb950" : ratio > .25 ? "#d29922" : "#f85149";
-  ctx.fillRect(sx - w/2, sy, w * Math.max(0, ratio), 4);
+function updateCamera() {
+  const pan = 1.4 * camZoom;
+  if (keys["a"] || keys["arrowleft"]) camTarget.x -= pan;
+  if (keys["d"] || keys["arrowright"]) camTarget.x += pan;
+  if (keys["w"] || keys["arrowup"]) camTarget.z -= pan;
+  if (keys["s"] || keys["arrowdown"]) camTarget.z += pan;
+  camTarget.x = Math.max(0, Math.min(WX(), camTarget.x));
+  camTarget.z = Math.max(0, Math.min(WZ(), camTarget.z));
+  camera.position.set(camTarget.x, 150 * camZoom, camTarget.z + 110 * camZoom);
+  camera.lookAt(camTarget.x, 0, camTarget.z);
+}
+function centerOnMyBase() {
+  if (!latest) return false;
+  const b = latest.entities.find(e => e.kind === "base" && e.team === myTeam);
+  if (!b) return false;
+  camTarget.set(b.x * S, 0, b.y * S); return true;
 }
 
-function colorFor(e) {
-  const mine = e.team === myTeam;
-  if (e.kind === "base") return mine ? "#1f6feb" : "#f85149";
-  if (e.kind === "building") return mine ? "#2ea043" : "#bb8009";
-  return mine ? "#388bfd" : "#da3633";
+// ================= HUD numbers + main loop ==================================
+function syncHud() {
+  if (!latest) return;
+  document.getElementById("r-steel").textContent = Math.floor(latest.resources.steel);
+  document.getElementById("r-fuel").textContent = Math.floor(latest.resources.fuel);
+  document.getElementById("r-gold").textContent = Math.floor(latest.resources.gold);
 }
 
-function render() {
-  // pan
-  const pan = 9;
-  if (keys["a"] || keys["arrowleft"]) camera.x -= pan;
-  if (keys["d"] || keys["arrowright"]) camera.x += pan;
-  if (keys["w"] || keys["arrowup"]) camera.y -= pan;
-  if (keys["s"] || keys["arrowdown"]) camera.y += pan;
-  camera.x = clamp(camera.x, 0, Math.max(0, WORLD.w - canvas.width));
-  camera.y = clamp(camera.y, 0, Math.max(0, WORLD.h - canvas.height));
-
-  ctx.fillStyle = "#c3ccd6"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  // grid
-  ctx.strokeStyle = "rgba(255,255,255,.22)"; ctx.lineWidth = 1;
-  const step = 100, sx0 = -(camera.x % step), sy0 = -(camera.y % step);
-  ctx.beginPath();
-  for (let x = sx0; x < canvas.width; x += step) { ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); }
-  for (let y = sy0; y < canvas.height; y += step) { ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); }
-  ctx.stroke();
-
-  if (!latest) { requestAnimationFrame(render); return; }
-
-  // one-time camera centering on my base
-  if (!camera.centered) {
-    const myBase = latest.entities.find(e => e.kind === "base" && e.team === myTeam);
-    if (myBase) {
-      camera.x = clamp(myBase.x - canvas.width / 2, 0, Math.max(0, WORLD.w - canvas.width));
-      camera.y = clamp(myBase.y - canvas.height / 2, 0, Math.max(0, WORLD.h - canvas.height));
-      camera.centered = true;
-    }
-  }
-
-  // entities: bases & buildings (squares), units (circles)
-  for (const e of latest.entities) {
-    const sx = e.x - camera.x, sy = e.y - camera.y;
-    if (sx < -40 || sy < -40 || sx > canvas.width + 40 || sy > canvas.height + 40) continue;
-
-    if (selected.has(e.id)) {
-      ctx.strokeStyle = "#3fb950"; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(sx, sy, e.r + 5, 0, Math.PI * 2); ctx.stroke();
-    }
-    ctx.fillStyle = colorFor(e);
-    ctx.strokeStyle = "rgba(0,0,0,.5)"; ctx.lineWidth = 2;
-    if (e.kind === "unit") {
-      ctx.beginPath(); ctx.arc(sx, sy, e.r, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      if (e.type === "artillery") { ctx.fillStyle = "#fff"; ctx.fillRect(sx - 2, sy - 2, 4, 4); }
-      if (e.type === "scout") { ctx.strokeStyle = "#fff"; ctx.beginPath(); ctx.arc(sx, sy, 3, 0, 6.3); ctx.stroke(); }
-    } else {
-      ctx.beginPath(); ctx.rect(sx - e.r, sy - e.r, e.r * 2, e.r * 2); ctx.fill(); ctx.stroke();
-      if (e.kind === "base") {
-        ctx.fillStyle = "#fff"; ctx.font = "bold 11px Segoe UI"; ctx.textAlign = "center";
-        ctx.fillText(e.team === myTeam ? "YOUR HQ" : "ENEMY", sx, sy + 4);
-      }
-    }
-    hpBar(sx, sy - e.r - 9, e.kind === "unit" ? 26 : e.r * 2, e.hp / e.maxHp);
-  }
-
-  // bullet tracers
-  for (const b of latest.bullets) {
-    ctx.strokeStyle = b.team === myTeam ? "rgba(120,200,255,.9)" : "rgba(255,150,120,.9)";
-    ctx.lineWidth = 2; ctx.beginPath();
-    ctx.moveTo(b.x - camera.x, b.y - camera.y); ctx.lineTo(b.tx - camera.x, b.ty - camera.y); ctx.stroke();
-  }
-
-  // placement ghost
-  if (placingBuilding) {
-    ctx.fillStyle = "rgba(46,160,67,.4)"; ctx.strokeStyle = "#2ea043"; ctx.lineWidth = 2;
-    const r = BUILDINGS.turret.r, m = lastMouse;
-    ctx.fillRect(m.x - r, m.y - r, r * 2, r * 2); ctx.strokeRect(m.x - r, m.y - r, r * 2, r * 2);
-  }
-
-  // selection box
-  if (drag) {
-    ctx.strokeStyle = "#3fb950"; ctx.fillStyle = "rgba(63,185,80,.12)"; ctx.lineWidth = 1.5;
-    const x = Math.min(drag.x0, drag.x1), y = Math.min(drag.y0, drag.y1);
-    ctx.fillRect(x, y, Math.abs(drag.x1 - drag.x0), Math.abs(drag.y1 - drag.y0));
-    ctx.strokeRect(x, y, Math.abs(drag.x1 - drag.x0), Math.abs(drag.y1 - drag.y0));
-  }
-
-  // minimap
-  const mmW = 180, mmH = 126, pad = 12, mmX = canvas.width - mmW - pad, mmY = pad;
-  ctx.fillStyle = "rgba(13,17,23,.85)"; ctx.fillRect(mmX, mmY, mmW, mmH);
-  ctx.strokeStyle = "#2b3846"; ctx.strokeRect(mmX, mmY, mmW, mmH);
-  const rx = mmW / WORLD.w, ry = mmH / WORLD.h;
-  for (const e of latest.entities) {
-    ctx.fillStyle = colorFor(e);
-    const sz = e.kind === "unit" ? 2 : 5;
-    ctx.fillRect(mmX + e.x * rx - sz/2, mmY + e.y * ry - sz/2, sz, sz);
-  }
-  ctx.strokeStyle = "rgba(255,255,255,.5)";
-  ctx.strokeRect(mmX + camera.x * rx, mmY + camera.y * ry, canvas.width * rx, canvas.height * ry);
-
-  // HUD numbers
-  const r = latest.resources;
-  document.getElementById("r-steel").textContent = Math.floor(r.steel);
-  document.getElementById("r-fuel").textContent = Math.floor(r.fuel);
-  document.getElementById("r-gold").textContent = Math.floor(r.gold);
-
-  requestAnimationFrame(render);
+function loop() {
+  try {
+    if (resetCameraOnStart && centerOnMyBase()) resetCameraOnStart = false;
+    updateCamera();
+    syncEntities();
+    syncHud();
+    renderer.render(scene, camera);
+  } catch (err) { showErr("Render error: " + err.message); console.error(err); }
+  requestAnimationFrame(loop);
 }
-let lastMouse = { x: 0, y: 0 };
-canvas.addEventListener("mousemove", e => { lastMouse = { x: e.offsetX, y: e.offsetY }; });
-requestAnimationFrame(render);
+
+initThree();
+buildGround();
+loop();
 </script>
 </body>
 </html>

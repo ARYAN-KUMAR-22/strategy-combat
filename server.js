@@ -53,10 +53,19 @@ const io = new Server(server);
 // ---- World / balance constants ---------------------------------------------
 const WORLD = { w: 2000, h: 1400 };
 
+// Troops progress from Ancient -> Modern, each stronger (and costlier) than the last.
+// cls drives the 3D model + role; flying units are drawn elevated.
 const UNIT_TYPES = {
-  scout:     { hp: 60,  speed: 150, range: 90,  dmg: 7,  cd: 0.5, cost: { steel: 20, fuel: 15 }, r: 9 },
-  tank:      { hp: 130, speed: 90,  range: 130, dmg: 14, cd: 0.7, cost: { steel: 50, fuel: 30 }, r: 12 },
-  artillery: { hp: 80,  speed: 55,  range: 240, dmg: 30, cd: 1.6, cost: { steel: 80, fuel: 55 }, r: 12 },
+  warrior:    { era: "Ancient",     cls: "melee",   hp: 70,  speed: 70,  range: 24,  dmg: 10, cd: 0.6, cost: { steel: 15,  fuel: 5 },              r: 9,  label: "Warrior" },
+  archer:     { era: "Ancient",     cls: "ranged",  hp: 55,  speed: 75,  range: 120, dmg: 9,  cd: 0.8, cost: { steel: 25,  fuel: 10 },             r: 9,  label: "Archer" },
+  knight:     { era: "Medieval",    cls: "cavalry", hp: 160, speed: 110, range: 28,  dmg: 18, cd: 0.6, cost: { steel: 55,  fuel: 20 },             r: 11, label: "Knight" },
+  catapult:   { era: "Medieval",    cls: "siege",   hp: 90,  speed: 45,  range: 230, dmg: 34, cd: 1.8, cost: { steel: 80,  fuel: 40 },             r: 13, label: "Catapult" },
+  musketeer:  { era: "Renaissance", cls: "ranged",  hp: 90,  speed: 80,  range: 150, dmg: 16, cd: 0.9, cost: { steel: 70,  fuel: 35 },             r: 9,  label: "Musketeer" },
+  cannon:     { era: "Industrial",  cls: "siege",   hp: 120, speed: 50,  range: 240, dmg: 40, cd: 1.6, cost: { steel: 110, fuel: 55 },             r: 13, label: "Cannon" },
+  rifleman:   { era: "Modern",      cls: "ranged",  hp: 120, speed: 85,  range: 170, dmg: 22, cd: 0.7, cost: { steel: 90,  fuel: 45, gold: 10 },   r: 9,  label: "Rifleman" },
+  tank:       { era: "Modern",      cls: "armored", hp: 240, speed: 90,  range: 150, dmg: 30, cd: 0.8, cost: { steel: 150, fuel: 70, gold: 20 },   r: 13, label: "Tank" },
+  artillery:  { era: "Modern",      cls: "siege",   hp: 110, speed: 55,  range: 300, dmg: 55, cd: 1.6, cost: { steel: 180, fuel: 90, gold: 30 },   r: 13, label: "Artillery" },
+  helicopter: { era: "Modern",      cls: "air",     hp: 160, speed: 160, range: 160, dmg: 34, cd: 0.7, cost: { steel: 160, fuel: 120, gold: 40 }, r: 12, flying: true, label: "Helicopter" },
 };
 
 const BUILDINGS = {
@@ -108,8 +117,9 @@ function createMatch(a, b) {
 
   match.entities.push(makeBase(240, WORLD.h - 240, "A"));
   match.entities.push(makeBase(WORLD.w - 240, 240, "B"));
-  for (let i = 0; i < 4; i++) match.entities.push(makeUnit("tank", 340 + (i % 2) * 40, WORLD.h - 340 + ((i / 2) | 0) * 40, "A"));
-  for (let i = 0; i < 4; i++) match.entities.push(makeUnit("tank", WORLD.w - 340 - (i % 2) * 40, 340 + ((i / 2) | 0) * 40, "B"));
+  const startUnits = ["warrior", "warrior", "warrior", "archer"];
+  startUnits.forEach((t, i) => match.entities.push(makeUnit(t, 340 + (i % 2) * 40, WORLD.h - 340 + ((i / 2) | 0) * 40, "A")));
+  startUnits.forEach((t, i) => match.entities.push(makeUnit(t, WORLD.w - 340 - (i % 2) * 40, 340 + ((i / 2) | 0) * 40, "B")));
 
   matches.set(id, match);
   a.data.matchId = id; a.data.team = "A";
