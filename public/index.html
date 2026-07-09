@@ -124,6 +124,7 @@
   <span id="shield-badge">🛡️ Protected</span>
   <div id="buildbar"></div>
   <button class="ubtn" id="btn-turret"><span class="nm">🏗️ Turret</span><span class="ct" id="turret-cost"></span></button>
+  <button class="ubtn" id="btn-mute" title="Toggle sound"><span class="nm">🔊</span></button>
 </div>
 
 <div id="help" style="display:none">
@@ -141,6 +142,57 @@
 let socket = null;
 const errEl = document.getElementById("err");
 function showErr(m) { errEl.style.display = "block"; errEl.textContent = m; }
+
+// ---- Procedural sound (Web Audio API — no audio files needed) ---------------
+const Sfx = (() => {
+  let ctx = null, master = null, noiseBuf = null;
+  let enabled = localStorage.getItem("sc-mute") !== "1";
+  function ensure() {
+    if (!ctx) {
+      const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+      ctx = new AC();
+      master = ctx.createGain(); master.gain.value = 0.32; master.connect(ctx.destination);
+    }
+    if (ctx.state === "suspended") ctx.resume();
+  }
+  function noise() {
+    if (!noiseBuf) {
+      noiseBuf = ctx.createBuffer(1, (ctx.sampleRate * 0.5) | 0, ctx.sampleRate);
+      const d = noiseBuf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    }
+    return noiseBuf;
+  }
+  function burst(dur, filter, freq, q, vol) {
+    if (!enabled || !ctx) return;
+    const src = ctx.createBufferSource(); src.buffer = noise();
+    const f = ctx.createBiquadFilter(); f.type = filter; f.frequency.value = freq; if (q) f.Q.value = q;
+    const g = ctx.createGain(); const t = ctx.currentTime;
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(f); f.connect(g); g.connect(master); src.start(t); src.stop(t + dur);
+  }
+  function tone(f0, f1, dur, vol, type) {
+    if (!enabled || !ctx) return;
+    const o = ctx.createOscillator(); o.type = type || "sine";
+    const g = ctx.createGain(); const t = ctx.currentTime;
+    o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t + dur);
+  }
+  return {
+    ensure,
+    shot(intensity) { burst(0.08, "bandpass", 1100, 6, Math.min(0.28, 0.12 + intensity * 0.02)); },
+    explosion(big) { burst(big ? 0.9 : 0.4, "lowpass", big ? 240 : 420, 1, big ? 0.7 : 0.38);
+                     tone(big ? 90 : 130, big ? 38 : 60, big ? 0.7 : 0.35, big ? 0.5 : 0.28, "sine"); },
+    build() { tone(520, 780, 0.12, 0.2, "triangle"); setTimeout(() => tone(780, 900, 0.1, 0.16, "triangle"), 90); },
+    denied() { tone(200, 120, 0.16, 0.22, "square"); },
+    victory() { [0, 130, 260].forEach((d, i) => setTimeout(() => tone([523, 659, 784][i], [523, 659, 784][i], 0.22, 0.22, "triangle"), d)); },
+    defeat() { tone(300, 90, 0.7, 0.28, "sawtooth"); },
+    setEnabled(v) { enabled = v; localStorage.setItem("sc-mute", v ? "0" : "1"); if (v) ensure(); },
+    isEnabled() { return enabled; },
+  };
+})();
+let lastShotSfx = 0;
 
 // ================= State ====================================================
 let UNIT_TYPES = {}, BUILDINGS = {}, WORLD = { w: 2000, h: 1400 };
@@ -181,6 +233,7 @@ function setAuthMode(m) {
 document.getElementById("auth-submit").addEventListener("click", submitAuth);
 document.getElementById("auth-pass").addEventListener("keydown", e => { if (e.key === "Enter") submitAuth(); });
 function submitAuth() {
+  Sfx.ensure();
   const u = document.getElementById("auth-user").value.trim();
   const p = document.getElementById("auth-pass").value;
   authMsg.className = ""; authMsg.textContent = "…";
@@ -213,6 +266,7 @@ document.getElementById("logout-btn").addEventListener("click", () => {
   showAuthPanel("Logged out.");
 });
 document.getElementById("ov-btn").addEventListener("click", () => {
+  Sfx.ensure();
   if (!socket) return;
   socket.emit("findMatch");
   const b = document.getElementById("ov-btn"); b.disabled = true; b.textContent = "Entering…";
@@ -255,14 +309,18 @@ function connectSocket() {
   socket.on("state", (snap) => {
     latest = snap;
     if (snap.deaths && terrain) {
-      for (const d of snap.deaths)
+      let played = 0;
+      for (const d of snap.deaths) {
         spawnExplosion(new THREE.Vector3(d.x * S, heightAt(d.x, d.y) + 2, d.y * S), d.big);
+        if (played < 3) { Sfx.explosion(d.big); played++; }
+      }
     }
   });
   socket.on("gameOver", ({ winner, reason, winnerName }) => {
     const won = winner === myTeam;
     const ov = document.getElementById("overlay"); ov.classList.remove("hidden");
     ov.querySelector("h1").textContent = won ? "🏆 VICTORY" : "💀 DEFEAT";
+    won ? Sfx.victory() : Sfx.defeat();
     document.getElementById("ov-text").textContent =
       (winnerName ? winnerName + " wins. " : "") +
       (won ? "You destroyed the enemy HQ. " : "Your HQ was destroyed. ") + "(" + reason + ")";
@@ -299,9 +357,17 @@ function buildBuildBar() {
     const btn = document.createElement("div"); btn.className = "ubtn";
     btn.innerHTML = `<span class="nm">${t.label}${idx < 9 ? " <small style='color:#6b7684'>[" + (idx + 1) + "]</small>" : ""}</span><span class="ct">${costStr(t.cost)}</span>`;
     btn.title = `${t.era} ${t.cls} · HP ${t.hp} · DMG ${t.dmg} · RNG ${t.range}`;
-    btn.addEventListener("click", () => socket.emit("build", { type: key }));
+    btn.addEventListener("click", () => doBuild(key));
     grp.appendChild(btn);
   });
+}
+function doBuild(type) {
+  Sfx.ensure();
+  const t = UNIT_TYPES[type]; if (!t || !socket) return;
+  const r = latest && latest.resources;
+  const ok = r && r.steel >= (t.cost.steel || 0) && r.fuel >= (t.cost.fuel || 0) && r.gold >= (t.cost.gold || 0);
+  if (!ok) { Sfx.denied(); return; }
+  socket.emit("build", { type }); Sfx.build();
 }
 document.querySelectorAll("[data-none]"); // noop
 const turretBtn = document.getElementById("btn-turret");
@@ -309,11 +375,17 @@ turretBtn.addEventListener("click", () => {
   placing = placing === "turret" ? null : "turret";
   turretBtn.classList.toggle("active", !!placing);
 });
+const muteBtn = document.getElementById("btn-mute");
+muteBtn.querySelector(".nm").textContent = Sfx.isEnabled() ? "🔊" : "🔇";
+muteBtn.addEventListener("click", () => {
+  Sfx.setEnabled(!Sfx.isEnabled());
+  muteBtn.querySelector(".nm").textContent = Sfx.isEnabled() ? "🔊" : "🔇";
+});
 addEventListener("keydown", (e) => {
   if (!myTeam) return;
   const keys = Object.keys(UNIT_TYPES);
   const n = parseInt(e.key, 10);
-  if (n >= 1 && n <= 9 && keys[n - 1]) socket.emit("build", { type: keys[n - 1] });
+  if (n >= 1 && n <= 9 && keys[n - 1]) doBuild(keys[n - 1]);
   if (e.key === "Escape") { placing = null; turretBtn.classList.remove("active"); }
 });
 
@@ -920,6 +992,9 @@ function loop() {
     }
     if (waterTex) { waterTex.offset.x += 0.0009; waterTex.offset.y += 0.0006; }   // ripple
     updateBullets();
+    if (latest && latest.bullets && latest.bullets.length && now - lastShotSfx > 90) {
+      Sfx.shot(latest.bullets.length); lastShotSfx = now;                          // battle crackle
+    }
     // tell the server where we're looking (interest management)
     if (socket && myTeam && (++viewFrame % 20 === 0)) socket.emit("view", { x: camTarget.x / S, y: camTarget.z / S });
     renderer.render(scene, camera);
